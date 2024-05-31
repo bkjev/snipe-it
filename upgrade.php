@@ -19,7 +19,7 @@ $app_environment = 'develop';
 $skip_php_checks = false;
 $branch = 'master';
 $branch_override = false;
-$no_interactive = false;
+$no_interactive = true;
 
 // Check for branch or other overrides
 if ($argc > 1){
