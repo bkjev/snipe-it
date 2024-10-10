@@ -189,14 +189,14 @@ dir="{{ Helper::determineLanguageDirection() }}">
                                           action="{{ route('findbytag/hardware') }}" method="get">
                                         <div class="col-xs-12 col-md-12">
                                             <div class="col-xs-12 form-group">
-                                                <label class="sr-only"
-                                                       for="tagSearch">{{ trans('general.lookup_by_tag') }}</label>
-                                                <input type="text" class="form-control" id="tagSearch" name="assetTag"
-                                                       placeholder="{{ trans('general.lookup_by_tag') }}">
+                                                <label class="sr-only" for="tagSearch">
+                                                    {{ trans('general.lookup_by_tag') }}
+                                                </label>
+                                                <input type="text" class="form-control" id="tagSearch" name="assetTag" placeholder="{{ trans('general.lookup_by_tag') }}">
                                                 <input type="hidden" name="topsearch" value="true" id="search">
                                             </div>
                                             <div class="col-xs-1">
-                                                <button type="submit" class="btn btn-primary pull-right">
+                                                <button type="submit" id="topSearchButton" class="btn btn-primary pull-right">
                                                     <x-icon type="search" />
                                                     <span class="sr-only">{{ trans('general.search') }}</span>
                                                 </button>
@@ -426,7 +426,7 @@ dir="{{ Helper::determineLanguageDirection() }}">
                 <!-- sidebar: style can be found in sidebar.less -->
                 <section class="sidebar">
                     <!-- sidebar menu: : style can be found in sidebar.less -->
-                    <ul class="sidebar-menu" data-widget="tree">
+                    <ul class="sidebar-menu" data-widget="tree" {{ \App\Helpers\Helper::determineLanguageDirection() == 'rtl' ? 'style="margin-right:12px' : '' }}>
                         @can('admin')
                             <li {!! (\Request::route()->getName()=='home' ? ' class="active"' : '') !!} class="firstnav">
                                 <a href="{{ route('home') }}">
@@ -645,9 +645,9 @@ dir="{{ Helper::determineLanguageDirection() }}">
                         @can('backend.interact')
                             <li class="treeview {!! in_array(Request::route()->getName(),App\Helpers\Helper::SettingUrls()) ? ' active': '' !!}">
                                 <a href="#" id="settings">
-                                    <x-icon type="settings" />
+                                    <x-icon type="settings" class="fa-fw" />
                                     <span>{{ trans('general.settings') }}</span>
-                                    <x-icon type="angle-left" class="fa-fw"/>
+                                    <x-icon type="angle-left" class="pull-right fa-fw"/>
                                 </a>
 
                                 <ul class="treeview-menu">

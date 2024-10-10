@@ -54,27 +54,32 @@ class IconHelper
             case 'logout':
                 return 'fa fa-sign-out';
             case 'admin-settings':
-                return 'fa fa-cogs';
+                return 'fas fa-cogs';
             case 'settings':
-                return 'fa fa-cog';
+                return 'fas fa-cog';
             case 'angle-left':
-                return 'fa fa-angle-left';
+                return 'fas fa-angle-left';
             case 'warning':
                 return 'fas fa-exclamation-triangle';
             case 'kits':
-                return 'fa fa-object-group';
+                return 'fas fa-object-group';
             case 'assets':
+            case 'asset':
                 return 'fas fa-barcode';
             case 'accessories':
+            case 'accessory':
                 return 'far fa-keyboard';
             case 'components':
+            case 'component':
                 return 'far fa-hdd';
             case 'consumables':
+            case 'consumable':
                 return 'fas fa-tint';
             case 'licenses':
+            case 'license':
                 return 'far fa-save';
             case 'requestable':
-                return 'fa fa-laptop';
+                return 'fas fa-laptop';
             case 'reports':
                 return 'fas fa-chart-bar';
             case 'heart':
@@ -86,7 +91,7 @@ class IconHelper
             case 'due':
                 return 'fas fa-history';
             case 'import':
-                return 'fas fa-cloud-upload-alt fa-fw';
+                return 'fas fa-cloud-upload-alt';
             case 'search':
                 return 'fas fa-search';
             case 'alerts':
@@ -141,6 +146,8 @@ class IconHelper
                 return 'fas fa-lock';
             case 'locations':
                 return 'fas fa-map-marker-alt';
+            case 'location':
+                return 'fas fa-map-marker-alt';
             case 'superadmin':
                 return 'fas fa-crown';
             case 'print':
@@ -173,6 +180,10 @@ class IconHelper
                 return 'fas fa-crosshairs';
             case 'oauth':
                 return 'fas fa-user-secret';
+            case 'employee_num' :
+                return 'fa-regular fa-id-card';
+            case 'department' :
+                return 'fa-solid fa-building-user';
 
         }
     }
