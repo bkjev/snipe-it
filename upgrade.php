@@ -43,6 +43,7 @@ $skip_php_checks = false;
 $branch = 'master';
 $branch_override = false;
 $no_interactive = false;
+$no_interactive = true;
 $skip_backup = false;
 
 // Check for branch or other overrides
