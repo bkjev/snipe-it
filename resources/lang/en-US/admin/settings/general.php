@@ -9,6 +9,8 @@ return [
     'ad_append_domain_help'     => 'User isn\'t required to write "username@domain.local", they can just type "username".',
     'admin_cc_email'            => 'CC Email',
     'admin_cc_email_help'       => 'Send a copy of checkin/checkout emails to this address.',
+    'admin_cc_always' => 'Always send copy upon checkin/checkout',
+    'admin_cc_when_acceptance_required' => 'Only send copy upon checkout if acceptance is required',
     'admin_settings'            => 'Admin Settings',
     'is_ad'				        => 'This is an Active Directory server',
     'alerts'                	=> 'Alerts',
@@ -401,6 +403,9 @@ return [
     'due_checkin_days_help' => 'How many days before the expected checkin of an asset should it be listed in the "Due for checkin" page?',
     'no_groups' => 'No groups have been created yet. Visit <code>Admin Settings > Permission Groups</code> to add one.',
     'text' => 'Text',
+    'manager_view' => 'Manager View',
+    'manager_view_enabled_text' => 'Enable Manager View',
+    'manager_view_enabled_help' => 'Allow managers to view assigned items to their direct and indirect reports in their account view.',
 
     'username_formats' => [
         'username_format'		=> 'Username Format',
@@ -410,7 +415,7 @@ return [
         'filastname_format'			=> 'First Initial Last Name (jsmith)',
         'lastnamefirstinitial_format' =>  'Last Name First Initial (smithj)',
         'firstname_lastname_underscore_format' => 'First Name Last Name (jane_smith)',
-        'firstinitial.lastname' => 'First Initial Last Name (j.smith)',
+        'firstinitial_lastname' => 'First Initial Last Name (j.smith)',
         'lastname_firstinitial' => 'Last Name First Initial (smith_j)',
         'lastname_dot_firstinitial_format' => 'Last Name First Initial (smith.j)',
         'firstnamelastname'     => 'First Name Last Name (janesmith)',
@@ -426,7 +431,7 @@ return [
         'filastname_format'			=> 'First Initial Last Name (jsmith@example.com)',
         'lastnamefirstinitial_format' =>  'Last Name First Initial (smithj@example.com)',
         'firstname_lastname_underscore_format' => 'First Name Last Name (jane_smith@example.com)',
-        'firstinitial.lastname' => 'First Initial Last Name (j.smith@example.com)',
+        'firstinitial_lastname' => 'First Initial Last Name (j.smith@example.com)',
         'lastname_firstinitial' => 'Last Name First Initial (smith_j@example.com)',
         'lastname_dot_firstinitial_format' => 'Last Name First Initial (smith.j@example.com)',
         'firstnamelastname'     => 'First Name Last Name (janesmith@example.com)',
@@ -484,6 +489,7 @@ return [
         'php_overview'      => 'phpinfo, system, info',
         'purge'             => 'permanently delete',
         'security'          => 'password, passwords, requirements, two factor, two-factor, common passwords, remote login, logout, authentication',
+        'notifications'     => 'alerts, email, notifications, audit, threshold, email alerts, cc',
     ],
 
 ];
