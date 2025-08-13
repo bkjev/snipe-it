@@ -20,6 +20,7 @@ use App\Models\Consumable;
 use App\Models\License;
 use App\Models\User;
 use App\Notifications\CurrentInventory;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -69,6 +70,7 @@ class UsersController extends Controller
             'users.notes',
             'users.permissions',
             'users.phone',
+            'users.mobile',
             'users.state',
             'users.two_factor_enrolled',
             'users.two_factor_optin',
@@ -108,8 +110,24 @@ class UsersController extends Controller
             $users = $users->where('users.activated', '=', $request->input('activated'));
         }
 
+        if ($request->input('admins') == 'true') {
+            $users = $users->OnlyAdminsAndSuperAdmins();
+        }
+
+        if ($request->input('superadmins') == 'true') {
+            $users = $users->OnlySuperAdmins();
+        }
+
         if ($request->filled('company_id')) {
             $users = $users->where('users.company_id', '=', $request->input('company_id'));
+        }
+
+        if ($request->filled('phone')) {
+            $users = $users->where('users.phone', '=', $request->input('phone'));
+        }
+
+        if ($request->filled('mobile')) {
+            $users = $users->where('users.mobile', '=', $request->input('mobile'));
         }
 
         if ($request->filled('location_id')) {
@@ -284,6 +302,7 @@ class UsersController extends Controller
                         'manages_users_count',
                         'manages_locations_count',
                         'phone',
+                        'mobile',
                         'address',
                         'city',
                         'state',
@@ -812,6 +831,39 @@ class UsersController extends Controller
         }
 
         return response()->json(Helper::formatStandardApiResponse('error', null, trans('admin/users/message.user_not_found')), 200);
+
+    }
+
+
+    /**
+     * Run the LDAP sync command to import users from LDAP via API.
+     *
+     * @author A. Gianotto <snipe@snipe.net>
+     * @since 8.2.2
+     *
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function syncLdapUsers(Request $request)
+    {
+        $this->authorize('update', User::class);
+        // Call Artisan LDAP import command.
+
+        Artisan::call('snipeit:ldap-sync', ['--location_id' => $request->input('location_id'), '--json_summary' => true]);
+
+        // Collect and parse JSON summary.
+        $ldap_results_json = Artisan::output();
+        $ldap_results = json_decode($ldap_results_json, true);
+
+        if (!$ldap_results) {
+            return response()->json(Helper::formatStandardApiResponse('error', null,trans('general.no_results')), 200);
+        }
+
+        // Direct user to appropriate status page.
+        if ($ldap_results['error']) {
+            return response()->json(Helper::formatStandardApiResponse('error', null, $ldap_results['error_message']), 200);
+        }
+
+        return response()->json(Helper::formatStandardApiResponse('success', null, $ldap_results['summary']), 200);
 
     }
 }

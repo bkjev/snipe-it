@@ -70,6 +70,7 @@ class User extends SnipeModel implements AuthenticatableContract, AuthorizableCo
         'manager_id',
         'password',
         'phone',
+        'mobile',
         'notes',
         'state',
         'username',
@@ -139,6 +140,7 @@ class User extends SnipeModel implements AuthenticatableContract, AuthorizableCo
         'locale',
         'notes',
         'phone',
+        'mobile',
         'state',
         'username',
         'website',
@@ -181,6 +183,17 @@ class User extends SnipeModel implements AuthenticatableContract, AuthorizableCo
                 $user->name = $user->getFullNameAttribute();
             }
         );
+    }
+
+    protected static function booted(): void
+    {
+        static::forceDeleted(function (User $user) {
+            CheckoutRequest::where(['user_id' => $user->id])->forceDelete();
+        });
+
+        static::softDeleted(function (User $user) {
+            CheckoutRequest::where(['user_id' => $user->id])->delete();
+        });
     }
 
 
@@ -398,9 +411,9 @@ class User extends SnipeModel implements AuthenticatableContract, AuthorizableCo
      * @since  [v4.0]
      * @return \Illuminate\Database\Eloquent\Relations\Relation
      */
-    public function assetmaintenances()
+    public function maintenances()
     {
-        return $this->hasMany(\App\Models\AssetMaintenance::class, 'user_id')->withTrashed();
+        return $this->hasMany(\App\Models\Maintenance::class, 'user_id')->withTrashed();
     }
 
     /**
@@ -891,6 +904,49 @@ class User extends SnipeModel implements AuthenticatableContract, AuthorizableCo
         );
     }
 
+    /**
+     * Return only admins and superusers
+     *
+     * @param  \Illuminate\Database\Query\Builder $query Query builder instance
+     */
+    public function scopeOnlySuperAdmins($query)
+    {
+
+        return $query->where('users.permissions', 'LIKE', '%"superuser":"1"%')
+            ->orWhere('users.permissions', 'LIKE', '%"superuser":1%')
+            ->orWhereHas(
+                'groups', function ($query) {
+                    $query->where('permission_groups.permissions', 'LIKE', '%"superuser":"1"%')
+                        ->orWhere('permission_groups.permissions', 'LIKE', '%"superuser":1%');
+                    }
+            );
+
+    }
+
+    /**
+     * Return only admins and superusers
+     *
+     * @param  \Illuminate\Database\Query\Builder $query Query builder instance
+     */
+    public function scopeOnlyAdminsAndSuperAdmins($query)
+    {
+
+        return $query->where('users.permissions', 'LIKE', '%"superuser":"1"%')
+            ->orWhere('users.permissions', 'LIKE', '%"superuser":1%')
+            ->orWhere('users.permissions', 'LIKE', '%"admin":1%')
+            ->orWhere('users.permissions', 'LIKE', '%"admin":"1"%')
+            ->orWhereHas(
+                'groups', function ($query) {
+                $query->where('permission_groups.permissions', 'LIKE', '%"superuser":"1"%')
+                    ->orWhere('permission_groups.permissions', 'LIKE', '%"superuser":1%')
+                    ->orWhere('permission_groups.permissions', 'LIKE', '%"admin":1%')
+                    ->orWhere('permission_groups.permissions', 'LIKE', '%"admin":"1"%');
+            }
+            );
+
+    }
+
+
 
     /**
      * Query builder scope to order on manager
@@ -964,7 +1020,6 @@ class User extends SnipeModel implements AuthenticatableContract, AuthorizableCo
 
 
 
-
     /**
      * Get the preferred locale for the user.
      *
@@ -1003,7 +1058,6 @@ class User extends SnipeModel implements AuthenticatableContract, AuthorizableCo
     public function scopeUserLocation($query, $location, $search)
     {
 
-
         return $query->where('location_id', '=', $location)
             ->where('users.first_name', 'LIKE', '%' . $search . '%')
             ->orWhere('users.email', 'LIKE', '%' . $search . '%')
@@ -1015,9 +1069,6 @@ class User extends SnipeModel implements AuthenticatableContract, AuthorizableCo
             ->orWhere('users.employee_num', 'LIKE', '%' . $search . '%')
             ->orWhere('users.username', 'LIKE', '%' . $search . '%')
             ->orwhereRaw('CONCAT(users.first_name," ",users.last_name) LIKE \''.$search.'%\'');
-
-
-
 
     }
 

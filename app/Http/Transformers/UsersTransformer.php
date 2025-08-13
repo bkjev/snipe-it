@@ -22,6 +22,12 @@ class UsersTransformer
     public function transformUser(User $user)
     {
 
+        $role = '';
+        if ($user->isSuperUser()) {
+            $role = 'superadmin';
+        } elseif ($user->isAdmin()) {
+            $role = 'admin';
+        }
         $array = [
                 'id' => (int) $user->id,
                 'avatar' => e($user->present()->gravatar) ?? null,
@@ -39,6 +45,7 @@ class UsersTransformer
                 'jobtitle' => ($user->jobtitle) ? e($user->jobtitle) : null,
                 'vip' => ($user->vip == '1') ? true : false,
                 'phone' => ($user->phone) ? e($user->phone) : null,
+                'mobile' => ($user->mobile) ? e($user->mobile) : null,
                 'website' => ($user->website) ? e($user->website) : null,
                 'address' => ($user->address) ? e($user->address) : null,
                 'city' => ($user->city) ? e($user->city) : null,
@@ -59,6 +66,7 @@ class UsersTransformer
                     'name'=> e($user->userloc->name),
                 ] : null,
                 'notes'=> Helper::parseEscapedMarkedownInline($user->notes),
+                'role' => $role,
                 'permissions' => $user->decodePermissions(),
                 'activated' => ($user->activated == '1') ? true : false,
                 'autoassign_licenses' => ($user->autoassign_licenses == '1') ? true : false,

@@ -125,6 +125,15 @@ class UserPresenter extends Presenter
                 'formatter'    => 'phoneFormatter',
             ],
             [
+                'field' => 'mobile',
+                'searchable' => true,
+                'sortable' => true,
+                'switchable' => true,
+                'title' => trans('admin/users/table.mobile'),
+                'visible' => false,
+                'formatter'    => 'mobileFormatter',
+            ],
+            [
                 'field' => 'website',
                 'searchable' => true,
                 'sortable' => true,
@@ -180,7 +189,7 @@ class UserPresenter extends Presenter
                 'switchable' => false,
                 'title' => trans('admin/users/table.username'),
                 'visible' => true,
-                'formatter' => 'usersLinkFormatter',
+                'formatter' => 'usernameRoleLinkFormatter',
             ],
             [
                 'field' => 'employee_num',
