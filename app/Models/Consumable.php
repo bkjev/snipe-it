@@ -4,22 +4,16 @@ namespace App\Models;
 
 use App\Helpers\Helper;
 use App\Models\Traits\Acceptable;
+use App\Models\Traits\CompanyableTrait;
 use App\Models\Traits\HasUploads;
 use App\Models\Traits\Searchable;
+use App\Presenters\ConsumablePresenter;
 use App\Presenters\Presentable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Storage;
 use Watson\Validating\ValidatingTrait;
-use Illuminate\Database\Eloquent\Relations\Relation;
-use App\Presenters\ConsumablePresenter;
-use App\Models\Actionlog;
-use App\Models\ConsumableAssignment;
-use App\Models\User;
-use App\Models\Location;
-use App\Models\Manufacturer;
-use App\Models\Supplier;
-use App\Models\Category;
 
 class Consumable extends SnipeModel
 {
@@ -230,11 +224,16 @@ class Consumable extends SnipeModel
      */
     public function getImageUrl()
     {
+        // If there is a consumable image, use that
         if ($this->image) {
             return Storage::disk('public')->url(app('consumables_upload_path').$this->image);
-        }
-        return false;
 
+        // Otherwise check for a category image
+        }   elseif (($this->category) && ($this->category->image)) {
+            return Storage::disk('public')->url(app('categories_upload_path').e($this->category->image));
+        }
+
+        return false;
     }
 
     /**

@@ -232,6 +232,7 @@ class AcceptanceController extends Controller
                 'signature' => ($sig_filename) ? storage_path() . '/private_uploads/signatures/' . $sig_filename : null,
                 'logo' => $path_logo,
                 'date_settings' => $branding_settings->date_display_format,
+                'admin' => auth()->user()->present()?->fullName,
             ];
 
             if ($pdf_view_route!='') {
@@ -247,15 +248,15 @@ class AcceptanceController extends Controller
 
                 // Add the attachment for the signing user into the $data array
                 $data['file'] = $pdf_filename;
-
+                $locale = $assigned_user->locale;
                 try {
-                    $assigned_user->notify(new AcceptanceAssetAcceptedToUserNotification($data));
+                    $assigned_user->notify((new AcceptanceAssetAcceptedToUserNotification($data))->locale($locale));
                 } catch (\Exception $e) {
                     Log::warning($e);
                 }
             }
             try {
-                $acceptance->notify(new AcceptanceAssetAcceptedNotification($data));
+                $acceptance->notify((new AcceptanceAssetAcceptedNotification($data))->locale(Setting::getSettings()->locale));
             } catch (\Exception $e) {
                 Log::warning($e);
             }

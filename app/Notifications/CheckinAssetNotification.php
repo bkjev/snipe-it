@@ -78,7 +78,7 @@ class CheckinAssetNotification extends Notification
         $channel = ($this->settings->webhook_channel) ? $this->settings->webhook_channel : '';
 
         $fields = [
-            trans('general.administrator') => '<'.$admin->present()->viewUrl().'|'.$admin->present()->fullName().'>',
+            trans('general.administrator') => '<'.$admin->present()->viewUrl().'|'.$admin->display_name.'>',
             trans('general.status') => $item->assetstatus?->name,
             trans('general.location') => ($item->location) ? $item->location->name : '',
         ];
@@ -97,7 +97,7 @@ class CheckinAssetNotification extends Notification
             ->from($botname)
             ->to($channel)
             ->attachment(function ($attachment) use ($item, $note, $admin, $fields) {
-                $attachment->title(htmlspecialchars_decode($item->present()->name), $item->present()->viewUrl())
+                $attachment->title(htmlspecialchars_decode($item->display_name), $item->present()->viewUrl())
                     ->fields($fields)
                     ->content($note);
             });
@@ -114,9 +114,9 @@ class CheckinAssetNotification extends Notification
                 ->type('success')
                 ->title(trans('mail.Asset_Checkin_Notification'))
                 ->addStartGroupToSection('activityText')
-                ->fact(htmlspecialchars_decode($item->present()->name), '', 'activityText')
+                ->fact(htmlspecialchars_decode($item->display_name), '', 'activityText')
                 ->fact(trans('mail.checked_into'), ($item->location) ? $item->location->name : '')
-                ->fact(trans('mail.Asset_Checkin_Notification') . " by ", $admin->present()->fullName())
+                ->fact(trans('mail.Asset_Checkin_Notification') . " by ", $admin->display_name)
                 ->fact(trans('admin/hardware/form.status'), $item->assetstatus?->name)
                 ->fact(trans('mail.notes'), $note ?: '');
         }
@@ -124,9 +124,9 @@ class CheckinAssetNotification extends Notification
 
         $message = trans('mail.Asset_Checkin_Notification');
         $details = [
-            trans('mail.asset') => htmlspecialchars_decode($item->present()->name),
+            trans('mail.asset') => htmlspecialchars_decode($item->display_name),
             trans('mail.checked_into') => ($item->location) ? $item->location->name : '',
-            trans('mail.Asset_Checkin_Notification')." by " => $admin->present()->fullName(),
+            trans('mail.Asset_Checkin_Notification')." by " => $admin->display_name,
             trans('admin/hardware/form.status') => $item->assetstatus?->name,
             trans('mail.notes') => $note ?: '',
         ];
@@ -145,7 +145,7 @@ class CheckinAssetNotification extends Notification
                 Card::create()
                     ->header(
                         '<strong>'.trans('mail.Asset_Checkin_Notification').'</strong>' ?: '',
-                        htmlspecialchars_decode($item->present()->name) ?: '',
+                        htmlspecialchars_decode($item->display_name) ?: '',
                     )
                     ->section(
                         Section::create(
