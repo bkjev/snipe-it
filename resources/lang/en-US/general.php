@@ -309,10 +309,12 @@ return [
     'total_licenses'		=> 'total licenses',
     'total_accessories'		=> 'total accessories',
     'total_consumables'		=> 'total consumables',
+    'total_cost'			=> 'Total Cost',
     'type'  				=> 'Type',
     'undeployable'			=> 'Un-deployable',
     'unknown_admin'			=> 'Unknown Admin',
     'unknown_user'          => 'Unknown User',
+    'unit_cost'				=> 'Unit Cost',
     'username'              => 'Username',
     'update'                => 'Update',
     'updating_item' => 'Updating :item',
@@ -353,9 +355,11 @@ return [
     'audit_overdue'         => 'Overdue for Audit',
     'accept'                => 'Accept :asset',
     'i_accept'              => 'I accept',
-    'i_decline_item'        => 'Decline this item',
-    'i_accept_item'         => 'Accept this item',
+    'i_accept_with_count' => 'I accept :count item|I accept :count items',
+    'i_decline_item' => 'Decline this item|Decline these items',
+    'i_accept_item' => 'Accept this item|Accept these items',
     'i_decline'             => 'I decline',
+    'i_decline_with_count' => 'I decline :count item|I decline :count items',
     'accept_decline'        => 'Accept/Decline',
     'sign_tos'              => 'Sign below to indicate that you agree to the terms of service:',
     'clear_signature'       => 'Clear Signature',
@@ -587,6 +591,7 @@ return [
         'components'  => ':count Component|:count Components',
     ],
 
+    'show_inactive' => 'Expired or Terminated',
     'more_info' => 'More Info',
     'quickscan_bulk_help' => 'Checking this box will edit the asset record to reflect this new location. Leaving it unchecked will simply note the location in the audit log. Note that if this asset is checked out, it will not change the location of the person, asset or location it is checked out to.',
     'whoops' => 'Whoops!',
@@ -611,6 +616,8 @@ return [
     'use_cloned_no_image_help' => 'This item does not have an associated image and instead inherits from the model or category it belongs to. If you would like to use a specific image for this item, you can upload a new one below.',
     'footer_credit' => '<a target="_blank" href="https://snipeitapp.com" rel="noopener">Snipe-IT</a> is open source software, made with <i class="fa fa-heart" aria-hidden="true" style="color: #a94442; font-size: 10px" /></i><span class="sr-only">love</span> by <a href="https://bsky.app/profile/snipeitapp.com" rel="noopener">@snipeitapp.com</a>.',
     'set_password' => 'Set a Password',
+    'upload_deleted'        => 'Upload Deleted',
+    'child_locations' => 'Child Locations',
 
 // Add form placeholders here
     'placeholders' => [

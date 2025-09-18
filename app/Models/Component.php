@@ -43,7 +43,7 @@ class Component extends SnipeModel
         'location_id'    => 'exists:locations,id|nullable|fmcs_location',
         'min_amt'        => 'integer|min:0|nullable',
         'purchase_date'   => 'date_format:Y-m-d|nullable',
-        'purchase_cost'  => 'numeric|nullable|gte:0|max:9999999999999',
+        'purchase_cost'     =>  'numeric|nullable|gte:0|max:99999999999999999.99',
         'manufacturer_id'   => 'integer|exists:manufacturers,id|nullable',
     ];
 
@@ -217,24 +217,6 @@ class Component extends SnipeModel
         return $this->category->require_acceptance;
     }
 
-    /**
-     * Checks for a category-specific EULA, and if that doesn't exist,
-     * checks for a settings level EULA
-     *
-     * @author [A. Gianotto] [<snipe@snipe.net>]
-     * @since [v4.0]
-     * @return string | false
-     */
-    public function getEula()
-    {
-        if ($this->category->eula_text) {
-            return  Helper::parseEscapedMarkedown($this->category->eula_text);
-        } elseif ((Setting::getSettings()->default_eula_text) && ($this->category->use_default_eula == '1')) {
-            return  Helper::parseEscapedMarkedown(Setting::getSettings()->default_eula_text);
-        } else {
-            return null;
-        }
-    }
 
     /**
      * Establishes the component -> action logs relationship
@@ -306,7 +288,10 @@ class Component extends SnipeModel
         return $this->qty - $this->numCheckedOut();
     }
 
+    public function totalCostSum() {
 
+        return $this->purchase_cost !== null ? $this->qty * $this->purchase_cost : null;
+    }
     /**
      * -----------------------------------------------
      * BEGIN MUTATORS

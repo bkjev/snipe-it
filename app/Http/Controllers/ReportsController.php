@@ -159,7 +159,7 @@ class ReportsController extends Controller
             $row[] = e($asset->serial);
 
             if ($target = $asset->assignedTo) {
-                $row[] = e($target->present()->name());
+                $row[] = e($target->display_name);
             } else {
                 $row[] = ''; // Empty string if unassigned
             }
@@ -274,22 +274,18 @@ class ReportsController extends Controller
                     $target_name = '';
 
                     if ($actionlog->target) {
-                            if ($actionlog->targetType() == 'user') {
-                                $target_name = $actionlog->target->display_name;
-                        } else {
-                            $target_name = $actionlog->target->getDisplayNameAttribute();
-                        }
+                        $target_name = $actionlog->target->display_name;
                     }
 
-                    if($actionlog->item){
-                        $item_name = e($actionlog->item->getDisplayNameAttribute());
+                    if ($actionlog->item){
+                        $item_name = e($actionlog->item->display_name);
                     } else {
                         $item_name = '';
                     }
 
                     $row = [
                         $actionlog->created_at,
-                        ($actionlog->adminuser) ? e($actionlog->adminuser->display_name) : '',
+                        ($actionlog->adminuser) ? $actionlog->adminuser->display_name : '',
                         $actionlog->present()->actionType(),
                         e($actionlog->itemType()),
                         ($actionlog->itemType() == 'user') ? $actionlog->filename : $item_name,
@@ -298,10 +294,10 @@ class ReportsController extends Controller
                         (($actionlog->item) && ($actionlog->item->model))  ? $actionlog->item->model->model_number : null,
                         $target_name,
                         ($actionlog->note) ? e($actionlog->note) : '',
-                        $actionlog->log_meta,
                         $actionlog->remote_ip,
                         $actionlog->user_agent,
                         $actionlog->action_source,
+                        $actionlog->log_meta,
                     ];
                     fputcsv($handle, $row);
                 }
@@ -856,8 +852,8 @@ class ReportsController extends Controller
                     }
 
                     if ($request->filled('assigned_to')) {
-                        $row[] = ($asset->checkedOutToUser() && $asset->assigned) ?? $asset->assigned->display_name;
-                        $row[] = ($asset->checkedOutToUser() && $asset->assigned) ? 'user' : $asset->assignedType();
+                        $row[] = ($asset->assigned) ? $asset->assigned->display_name : '';
+                        $row[] = ($asset->assigned) ? $asset->assignedType() : '';
                     }
 
                     if ($request->filled('username')) {
@@ -1260,7 +1256,7 @@ class ReportsController extends Controller
                 $row[]  = str_replace(',', '', e($item['assetItem']->model->name));
                 $row[]  = str_replace(',', '', e($item['assetItem']->name));
                 $row[]  = str_replace(',', '', e($item['assetItem']->asset_tag));
-                $row[]  = str_replace(',', '', e(($item['acceptance']->assignedTo) ? $item['acceptance']->assignedTo->present()->name() : trans('admin/reports/general.deleted_user')));
+                $row[]  = str_replace(',', '', e(($item['acceptance']->assignedTo) ? $item['acceptance']->assignedTo->display_name : trans('admin/reports/general.deleted_user')));
                 $rows[] = implode(',', $row);
             }
         }

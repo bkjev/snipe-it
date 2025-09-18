@@ -50,7 +50,12 @@ class ActionlogsTransformer
 
     public function transformActionlog (Actionlog $actionlog, $settings = null)
     {
+
         $icon = $actionlog->present()->icon();
+
+        if (($actionlog->filename!='') && ($actionlog->action_type!='upload deleted')) {
+            $icon =  Helper::filetype_icon($actionlog->filename);
+        }
 
         static $custom_fields = false;
 
@@ -58,9 +63,7 @@ class ActionlogsTransformer
             $custom_fields = CustomField::all();
         }
 
-        if ($actionlog->filename!='') {
-            $icon =  Helper::filetype_icon($actionlog->filename);
-        }
+
 
         // This is necessary since we can't escape special characters within a JSON object
         if (($actionlog->log_meta) && ($actionlog->log_meta!='')) {
@@ -144,7 +147,7 @@ class ActionlogsTransformer
                 [
                     'url' => $actionlog->uploads_file_url(),
                     'filename' => $actionlog->filename,
-                    'inlineable' => StorageHelper::allowSafeInline($actionlog->uploads_file_url()),
+                    'inlineable' => StorageHelper::allowSafeInline($actionlog->uploads_file_path()),
                     'exists_on_disk' => Storage::exists($actionlog->uploads_file_path()) ? true : false,
                 ] : null,
 
@@ -152,7 +155,7 @@ class ActionlogsTransformer
                 'id' => (int) $actionlog->item->id,
                 'name' => e($actionlog->item->display_name) ?? null,
                 'type' => e($actionlog->itemType()),
-                'serial' =>e($actionlog->item->serial) ? e($actionlog->item->serial) : null
+                'serial' => e($actionlog->item->serial) ? e($actionlog->item->serial) : null
             ] : null,
             'location' => ($actionlog->location) ? [
                 'id' => (int) $actionlog->location->id,
@@ -165,7 +168,7 @@ class ActionlogsTransformer
             'action_type'   => $actionlog->present()->actionType(),
             'admin' => ($actionlog->adminuser) ? [
                 'id' => (int) $actionlog->adminuser->id,
-                'name' => e($actionlog->adminuser->display_name),
+                'name' => e($actionlog->adminuser->display_name) ?? null,
                 'first_name'=> e($actionlog->adminuser->first_name),
                 'last_name'=> e($actionlog->adminuser->last_name)
             ] : null,
@@ -177,7 +180,7 @@ class ActionlogsTransformer
             ] : null,
             'target' => ($actionlog->target) ? [
                 'id' => (int) $actionlog->target->id,
-                'name' => ($actionlog->target->display_name) ?? null,
+                'name' => e($actionlog->target->display_name) ?? null,
                 'type' => e($actionlog->targetType()),
             ] : null,
 
