@@ -1127,10 +1127,10 @@ class ReportsController extends Controller
         $this->authorize('reports.view');
         $showDeleted = $deleted == 'deleted';
 
-        $query = CheckoutAcceptance::pending()
+        $query = CheckoutAcceptance::Pending()
             ->with([
                 'checkoutable' => function (MorphTo $query) {
-                    $query->morphWith([
+                    $query->withTrashed()->morphWith([
                         Asset::class => ['model.category', 'assignedTo', 'company'],
                         Accessory::class => ['category','checkouts', 'company'],
                         LicenseSeat::class => ['user', 'license'],
@@ -1148,7 +1148,9 @@ class ReportsController extends Controller
             $query->withTrashed();
         }
 
-        $itemsForReport = $query->get()->map(fn ($unaccepted) => Checkoutable::fromAcceptance($unaccepted));
+        $itemsForReport = $query->get()
+            ->filter(fn ($unaccepted) => $unaccepted->checkoutable)
+            ->map(fn ($unaccepted) => Checkoutable::fromAcceptance($unaccepted));
 
         return view('reports/unaccepted_assets', compact('itemsForReport','showDeleted' ));
     }
@@ -1166,7 +1168,7 @@ class ReportsController extends Controller
         $query = CheckoutAcceptance::query()
             ->with([
                 'checkoutable' => function (MorphTo $query) {
-                    $query->morphWith([
+                    $query->withTrashed()->morphWith([
                         Asset::class       => ['model.category', 'assignedTo', 'company', 'checkouts'],
                         Accessory::class   => ['category', 'company', 'checkouts'],
                         LicenseSeat::class => ['user', 'license', 'checkouts'],
@@ -1180,7 +1182,7 @@ class ReportsController extends Controller
         $acceptance = $query->find($id);
         if (!$acceptance) {
             Log::debug('No pending acceptances');
-            // Redirect to the unaccepted assets report page with error
+            // Redirect to the unaccepted items report page with error
             return redirect()->route('reports/unaccepted_assets')->with('error', trans('general.bad_data'));
         }
         $item      = $acceptance->checkoutable;
@@ -1273,7 +1275,7 @@ class ReportsController extends Controller
             $acceptances = CheckoutAcceptance::pending()
                 ->with([
                     'checkoutable' => function (MorphTo $acceptance) {
-                        $acceptance->morphWith([
+                        $acceptance->withTrashed()->morphWith([
                             Asset::class => ['model.category', 'assignedTo', 'company'],
                             Accessory::class => ['category','checkouts', 'company'],
                             LicenseSeat::class => ['user', 'license'],
@@ -1288,7 +1290,9 @@ class ReportsController extends Controller
                 $acceptances->withTrashed();
             }
 
-        $itemsForReport = $acceptances->get()->map(fn ($unaccepted) => Checkoutable::fromAcceptance($unaccepted));
+        $itemsForReport = $acceptances->get()
+                ->filter(fn ($unaccepted) => $unaccepted->checkoutable)
+                ->map(fn ($unaccepted) => Checkoutable::fromAcceptance($unaccepted));
 
         $rows = [];
 
