@@ -170,6 +170,10 @@ class Consumable extends SnipeModel
             return 100;
         }
 
+        if (($this->qty == '') || ($this->qty == 0)) {
+            return 0;
+        }
+
         return ($this->qty - $this->consumables_users_count) / $this->qty * 100;
     }
 
@@ -318,7 +322,7 @@ class Consumable extends SnipeModel
      */
     public function requireAcceptance()
     {
-        return $this->category->require_acceptance;
+        return $this->category?->require_acceptance ?? false;
     }
 
     /**

@@ -192,8 +192,8 @@ class AssetsTransformer
                         'pivot_id' => $component->pivot->id,
                         'name' => e($component->name),
                         'qty' => $component->pivot->assigned_qty,
-                        'price_cost' => $component->purchase_cost,
-                        'purchase_total' => $component->purchase_cost * $component->pivot->assigned_qty,
+                        'purchase_cost' => $component->purchase_cost,
+                        'purchase_total' => $component->calculated_purchase_cost,
                         'checkout_date' => Helper::getFormattedDateObject($component->pivot->created_at, 'datetime'),
 
                     ];
@@ -403,9 +403,10 @@ class AssetsTransformer
             $array[] = [
                 'assigned_pivot_id' => $component_checkout->id,
                 'name' => [
-                    'id' => $component_checkout->component->id,
-                    'name' => e($component_checkout->component->display_name),
+                    'id' => $component_checkout->component?->id,
+                    'name' => e($component_checkout->component?->display_name),
                     'type' => 'component',
+                    'deleted_at' => $component_checkout->component?->deleted_at,
                 ],
                 'assigned_qty' => $component_checkout->assigned_qty,
                 'note' => ($component_checkout->note) ? e($component_checkout->note) : null,
@@ -414,7 +415,10 @@ class AssetsTransformer
                     'id' => (int) $component_checkout->adminuser->id,
                     'name' => e($component_checkout->adminuser->display_name),
                 ] : null,
-                'available_actions' => ['checkin' => Gate::allows('checkin', Component::class)],
+                'available_actions' => [
+                    'checkin' => (($component_checkout->component?->deleted_at == '') && Gate::allows('checkin', Component::class)),
+                    'view' => (($component_checkout->component?->deleted_at == '') && Gate::allows('view', Component::class)),
+                ],
             ];
         }
 
