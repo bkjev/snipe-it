@@ -1771,6 +1771,12 @@
             } else if (value.type == 'model') {
                 item_destination = 'models'
                 item_icon = '';
+            } else if (value.type == 'supplier') {
+                item_destination = 'suppliers';
+                item_icon = 'fas fa-city';
+            } else if (value.type == 'department') {
+                item_destination = 'departments';
+                item_icon = 'fas fa-sitemap';
             }
 
             // display the username if it's checked out to a user, but don't do it if the username's there already
@@ -2001,7 +2007,7 @@
         if (value) {
             var groups = '';
             for (var index in value.rows) {
-                groups += '<a href="{{ config('app.url') }}/admin/groups/' + value.rows[index].id + '" class="label label-default">' + value.rows[index].name + '</a> ';
+                groups += '<a href="{{ config('app.url') }}/admin/groups/' + value.rows[index].id + '" class="label label-light">' + value.rows[index].name + '</a> ';
             }
             return groups;
         }
@@ -2176,6 +2182,24 @@
         } else {
             return value;
         }
+    }
+
+    function companiesLinkObjFormatter(value, row) {
+        if (!value) {
+            return '';
+        }
+        var icon = (value.tag_color) ? '<i class="fa-solid fa-square" style="color: ' + value.tag_color + ';" aria-hidden="true"></i> ' : '';
+        return '<a href="{{ config('app.url') }}/companies/' + value.id + '" class="label label-light">' + icon + value.name + '</a>';
+    }
+
+    function companiesArrayLinkFormatter(value, row) {
+        if (!value || !value.length) {
+            return '';
+        }
+        return value.map(function (c) {
+            var icon = (c.tag_color) ? '<i class="fa-solid fa-square" style="color: ' + c.tag_color + ';" aria-hidden="true"></i> ' : '';
+            return '<a href="{{ config('app.url') }}/companies/' + c.id + '" class="label label-light">' + icon + c.name + '</a></span>';
+        }).join(' ');
     }
 
     function locationCompanyObjFilterFormatter(value, row) {
