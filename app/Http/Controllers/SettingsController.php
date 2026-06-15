@@ -19,6 +19,7 @@ use App\Models\Group;
 use App\Models\Setting;
 use App\Models\User;
 use App\Notifications\MailTest;
+use App\Rules\CssColor;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -92,10 +93,12 @@ class SettingsController extends Controller
         $old_locations_fmcs = $setting->scope_locations_fmcs;
         $setting->full_multiple_companies_support = $request->input('full_multiple_companies_support', '0');
         $setting->scope_locations_fmcs = $request->input('scope_locations_fmcs', '0');
+        $setting->null_company_is_floater = $request->input('null_company_is_floater', '0');
 
-        // Backward compatibility for locations makes no sense without FullMultipleCompanySupport
+        // These options make no sense without FullMultipleCompanySupport
         if (! $setting->full_multiple_companies_support) {
             $setting->scope_locations_fmcs = '0';
+            $setting->null_company_is_floater = '0';
         }
 
         // check for inconsistencies when activating scoped locations
@@ -188,6 +191,13 @@ class SettingsController extends Controller
             if ($request->has('site_name')) {
                 $request->validate(['site_name' => 'required']);
             }
+
+            $request->validate([
+                'header_color' => ['nullable', new CssColor],
+                'link_light_color' => ['nullable', new CssColor],
+                'link_dark_color' => ['nullable', new CssColor],
+                'nav_link_color' => ['nullable', new CssColor],
+            ]);
 
             $setting->header_color = $request->input('header_color', '#3c8dbc');
             $setting->link_light_color = $request->input('link_light_color', '#296282');

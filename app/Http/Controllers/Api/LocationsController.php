@@ -67,7 +67,18 @@ class LocationsController extends Controller
             'notes',
         ];
 
-        $locations = Location::with('parent', 'manager', 'children')->select([
+        $locations = Location::with([
+            'parent',
+            'children',
+            'manager' => fn ($q) => $q->withCount([
+                'assets as assets_count',
+                'accessories as accessories_count',
+                'licenses as licenses_count',
+                'consumables as consumables_count',
+                'managesUsers as manages_users_count',
+                'managedLocations as manages_locations_count',
+            ]),
+        ])->select([
             'locations.id',
             'locations.name',
             'locations.address',
@@ -103,7 +114,9 @@ class LocationsController extends Controller
             ->withCount('components as components_count')
             ->with('adminuser');
 
-        // Only scope locations if the setting is enabled
+        // scope_locations_fmcs is required for location-level company scoping (locations may not
+        // have company_id assigned unless the compatibility check has been completed in Settings).
+        // Without it, locations are visible to all authenticated users regardless of FMCS state.
         if (Setting::getSettings()->scope_locations_fmcs) {
             $locations = Company::scopeCompanyables($locations);
         }
@@ -157,8 +170,6 @@ class LocationsController extends Controller
             $locations->where('tag_color', '=', $request->input('locations.tag_color'));
         }
 
-        // Make sure the offset and limit are actually integers and do not exceed system limits
-        $offset = ($request->input('offset') > $locations->count()) ? $locations->count() : app('api_offset_value');
         $limit = app('api_limit_value');
 
         $order = $request->input('order') === 'asc' ? 'asc' : 'desc';
@@ -180,6 +191,7 @@ class LocationsController extends Controller
         }
 
         $total = $locations->count();
+        $offset = ($request->input('offset') > $total) ? $total : app('api_offset_value');
         $locations = $locations->skip($offset)->take($limit)->get();
 
         return (new LocationsTransformer)->transformLocations($locations, $total);
@@ -199,12 +211,19 @@ class LocationsController extends Controller
         $location->fill($request->all());
         $location = $request->handleImages($location);
 
-        // Only scope location if the setting is enabled
         if (Setting::getSettings()->scope_locations_fmcs) {
             $location->company_id = Company::getIdForCurrentUser($request->input('company_id'));
-            // check if parent is set and has a different company
-            if ($location->parent_id && Location::find($location->parent_id)->company_id != $location->company_id) {
-                response()->json(Helper::formatStandardApiResponse('error', null, 'different company than parent'));
+        }
+
+        // Parent company check applies whenever FMCS is on, independent of scope_locations_fmcs.
+        if (Setting::getSettings()->full_multiple_companies_support) {
+            $parent = $location->parent_id ? Location::find($location->parent_id) : null;
+            if ($parent && $parent->company_id != $location->company_id) {
+                return response()->json(Helper::formatStandardApiResponse('error', null, trans('general.error_location_parent_company', [
+                    'parent' => $parent->name,
+                    'parent_company' => $parent->company?->name ?? trans('general.unassigned'),
+                    'location_company' => $location->company?->name ?? trans('general.unassigned'),
+                ])));
             }
         }
 
@@ -227,7 +246,19 @@ class LocationsController extends Controller
     public function show($id): JsonResponse|array
     {
         $this->authorize('view', Location::class);
-        $location = Location::with('parent', 'manager', 'children', 'company')
+        $location = Location::with([
+            'parent',
+            'children',
+            'company',
+            'manager' => fn ($q) => $q->withCount([
+                'assets as assets_count',
+                'accessories as accessories_count',
+                'licenses as licenses_count',
+                'consumables as consumables_count',
+                'managesUsers as manages_users_count',
+                'managedLocations as manages_locations_count',
+            ]),
+        ])
             ->select([
                 'locations.id',
                 'locations.name',
@@ -279,15 +310,33 @@ class LocationsController extends Controller
         $location = $request->handleImages($location);
 
         if ($request->filled('company_id')) {
-            // Only scope location if the setting is enabled
             if (Setting::getSettings()->scope_locations_fmcs) {
                 $location->company_id = Company::getIdForCurrentUser($request->input('company_id'));
                 // check if there are related objects with different company
-                if (Helper::test_locations_fmcs(false, $id, $location->company_id)) {
-                    return response()->json(Helper::formatStandardApiResponse('error', null, 'error scoped locations'));
+                if ($mismatched = Helper::test_locations_fmcs(false, $id, $location->company_id)) {
+                    $first = $mismatched[0];
+
+                    return response()->json(Helper::formatStandardApiResponse('error', null, trans('general.error_location_scoped_items', [
+                        'item_type' => trans('general.'.strtolower($first[0])),
+                        'item_name' => $first[2],
+                        'item_company' => $first[5] ?? trans('general.unassigned'),
+                    ])));
                 }
             } else {
                 $location->company_id = $request->input('company_id');
+            }
+        }
+
+        // Parent company check applies whenever FMCS is on, independent of scope_locations_fmcs.
+        // Runs outside the company_id gate so a parent_id-only update is also validated.
+        if (Setting::getSettings()->full_multiple_companies_support) {
+            $parent = $location->parent_id ? Location::find($location->parent_id) : null;
+            if ($parent && $parent->company_id != $location->company_id) {
+                return response()->json(Helper::formatStandardApiResponse('error', null, trans('general.error_location_parent_company', [
+                    'parent' => $parent->name,
+                    'parent_company' => $parent->company?->name ?? trans('general.unassigned'),
+                    'location_company' => $location->company?->name ?? trans('general.unassigned'),
+                ])));
             }
         }
 
@@ -422,15 +471,6 @@ class LocationsController extends Controller
             'locations.tag_color',
         ]);
 
-        // Only scope locations if the setting is enabled
-        if (Setting::getSettings()->scope_locations_fmcs) {
-            $locations = Company::scopeCompanyables($locations);
-        }
-
-        if ((Setting::getSettings()->full_multiple_companies_support == '1') && $request->filled('companyId')) {
-            $locations->where('locations.company_id', $request->input('companyId'));
-        }
-
         $page = 1;
         if ($request->filled('page')) {
             $page = $request->input('page');
@@ -438,6 +478,10 @@ class LocationsController extends Controller
 
         if ($request->filled('search')) {
             $locations = $locations->where('locations.name', 'LIKE', '%'.$request->input('search').'%');
+        }
+
+        if ($request->filled('excludeId')) {
+            $locations->where('locations.id', '!=', (int) $request->input('excludeId'));
         }
 
         $locations = $locations->orderBy('name', 'ASC')->get();

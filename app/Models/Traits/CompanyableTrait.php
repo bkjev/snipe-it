@@ -2,9 +2,10 @@
 
 namespace App\Models\Traits;
 
-use App\Models\Company\Company;
 use App\Models\CompanyableScope;
 use App\Models\Setting;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
 
 trait CompanyableTrait
 {
@@ -18,13 +19,43 @@ trait CompanyableTrait
      */
     public static function bootCompanyableTrait()
     {
-        // In Version 7.0 and before locations weren't scoped by companies, so add a check for the backward compatibility setting
-        if (__CLASS__ != 'App\Models\Location') {
-            static::addGlobalScope(new CompanyableScope);
-        } else {
-            if (Setting::getSettings()?->scope_locations_fmcs == 1) {
-                static::addGlobalScope(new CompanyableScope);
-            }
+        static::addGlobalScope(new CompanyableScope);
+    }
+
+    /**
+     * Whether this item may be checked out to the given target under FMCS rules.
+     *
+     * Returns true when:
+     *  - FMCS is disabled, OR
+     *  - this item has no company (uncompanied items are unrestricted), OR
+     *  - target is a User whose company pivot includes this item's company, OR
+     *  - target has no company and null_company_is_floater is enabled, OR
+     *  - target's company_id exactly matches this item's company_id.
+     */
+    public function canCheckoutTo(Model $target): bool
+    {
+        $settings = Setting::getSettings();
+
+        if (! $settings->full_multiple_companies_support) {
+            return true;
         }
+
+        if (! $this->company_id) {
+            if (is_null($target->company_id)) {
+                return true;
+            }
+
+            return (bool) $settings->null_company_is_floater;
+        }
+
+        if ($target instanceof User) {
+            return $target->canReceiveFromCompany((int) $this->company_id);
+        }
+
+        if (is_null($target->company_id)) {
+            return (bool) $settings->null_company_is_floater;
+        }
+
+        return (int) $target->company_id === (int) $this->company_id;
     }
 }

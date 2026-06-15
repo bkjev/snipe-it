@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 use Watson\Validating\ValidatingTrait;
 
 /**
@@ -155,11 +156,27 @@ final class Company extends SnipeModel
             if ($current_user->isSuperUser()) {
                 return self::getIdFromInput($unescaped_input);
             } else {
-                if ($current_user->company_id != null) {
-                    return $current_user->company_id;
-                } else {
-                    return null;
+                $userCompanyIds = self::getCurrentUserCompanyIds();
+                $submittedId = (int) self::getIdFromInput($unescaped_input);
+
+                // Company membership is now determined entirely by the pivot (company_user table).
+                // If the submitted value is a company the user actually belongs to, honour it.
+                if ($submittedId && in_array($submittedId, $userCompanyIds)) {
+                    return $submittedId;
                 }
+
+                // A user with pivot memberships who submits a company they don't belong to is
+                // attempting cross-tenant assignment — reject outright rather than silently
+                // overriding or storing null.
+                if ($submittedId && ! empty($userCompanyIds)) {
+                    throw ValidationException::withMessages([
+                        'company_id' => [trans('validation.in', ['attribute' => 'company_id'])],
+                    ]);
+                }
+
+                // No company submitted (or user has no pivot memberships) — fall back to the
+                // user's single company if unambiguous, otherwise null.
+                return count($userCompanyIds) === 1 ? $userCompanyIds[0] : null;
             }
         }
     }
@@ -269,7 +286,7 @@ final class Company extends SnipeModel
     {
         return ! self::isFullMultipleCompanySupportEnabled()
             || auth()->user()->isSuperUser()
-            || empty(self::getCurrentUserCompanyIds());
+            || ! empty(self::getCurrentUserCompanyIds());
     }
 
     /**
@@ -381,14 +398,30 @@ final class Company extends SnipeModel
             return $query->whereIn('companies.id', $companyIds);
         }
 
+        $floater = Setting::getSettings()->null_company_is_floater;
+
         // Users are scoped by pivot membership (company_user), not by company_id column,
         // since a user may belong to multiple companies and company_id alone is insufficient.
         if ($query->getModel()->getTable() == 'users') {
             if (empty($companyIds)) {
+                // Floater: actor has no company and is unrestricted — see everyone.
+                if ($floater) {
+                    return $query;
+                }
+
                 // No pivot memberships: mirror old null-company behavior — show only users
                 // who are also not in any company via the pivot.
                 return $query->whereNotIn('users.id', function ($sub) {
                     $sub->select('user_id')->from('company_user');
+                });
+            }
+
+            // Floater: also include users with no company associations (they float). They all float down here, Georgie.).
+            if ($floater) {
+                return $query->where(function ($q) use ($companyIds) {
+                    $q->whereIn('users.id', function ($sub) use ($companyIds) {
+                        $sub->select('user_id')->from('company_user')->whereIn('company_id', $companyIds);
+                    })->orWhereDoesntHave('companies');
                 });
             }
 
@@ -402,11 +435,52 @@ final class Company extends SnipeModel
             $table = ($table_name) ? $table_name.'.' : $query->getModel()->getTable().'.';
 
             if (empty($companyIds)) {
+                // Floater: actor has no company and is unrestricted — see everything.
+                if ($floater) {
+                    return $query;
+                }
+
                 return $query->whereNull($table.$column);
+            }
+
+            // action_logs: a NULL company_id means the logged object (AssetModel, Company, etc.)
+            // has no company_id column of its own. Those are global objects, visible to all users,
+            // so their log entries should not be hidden by the company filter.
+            if ($query->getModel()->getTable() === 'action_logs') {
+                return $query->where(function ($q) use ($table, $column, $companyIds) {
+                    $q->whereIn($table.$column, $companyIds)
+                        ->orWhereNull($table.$column);
+                });
+            }
+
+            // Floater: null-company items are visible to users from any company.
+            if ($floater) {
+                return $query->where(function ($q) use ($table, $column, $companyIds) {
+                    $q->whereIn($table.$column, $companyIds)
+                        ->orWhereNull($table.$column);
+                });
             }
 
             return $query->whereIn($table.$column, $companyIds);
         }
+    }
+
+    /**
+     * Scope a users query to those belonging to the given company IDs, respecting floater mode.
+     *
+     * Extracted from controller-level inline logic so the same rule is enforced consistently
+     * everywhere users are filtered by a specific set of company IDs (e.g. select2 dropdowns).
+     */
+    public static function scopeUsersByCompanyIds($query, array $companyIds): mixed
+    {
+        if (Setting::getSettings()->null_company_is_floater) {
+            return $query->where(function ($q) use ($companyIds) {
+                $q->whereHas('companies', fn ($q2) => $q2->whereIn('companies.id', $companyIds))
+                    ->orWhereDoesntHave('companies');
+            });
+        }
+
+        return $query->whereHas('companies', fn ($q) => $q->whereIn('companies.id', $companyIds));
     }
 
     /**
