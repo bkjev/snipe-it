@@ -91,7 +91,6 @@ final class Company extends SnipeModel
         'phone',
         'fax',
         'email',
-        'created_by',
         'tag_color',
         'notes',
     ];
@@ -237,9 +236,9 @@ final class Company extends SnipeModel
                     ->pluck('company_id')
                     ->toArray();
 
-                // A user with no pivot rows is a null-company user; no intersection is possible.
+                // A null-company user (no pivot rows) is accessible in floater mode.
                 if (empty($companyableCompanyIds)) {
-                    return false;
+                    return (bool) Setting::getSettings()->null_company_is_floater;
                 }
 
                 return ! empty(array_intersect($userCompanyIds, $companyableCompanyIds));
@@ -248,6 +247,11 @@ final class Company extends SnipeModel
             $companyable_company_id = ($companyable instanceof Company)
                 ? $companyable->id
                 : $companyable->company_id;
+
+            // Null-company items are accessible to company-scoped users only when floater is on.
+            if (is_null($companyable_company_id)) {
+                return (bool) Setting::getSettings()->null_company_is_floater;
+            }
 
             return in_array($companyable_company_id, $userCompanyIds);
         }
@@ -404,19 +408,18 @@ final class Company extends SnipeModel
         // since a user may belong to multiple companies and company_id alone is insufficient.
         if ($query->getModel()->getTable() == 'users') {
             if (empty($companyIds)) {
-                // Floater: actor has no company and is unrestricted — see everyone.
+                // Floater: null-company actor is unrestricted — see everyone.
                 if ($floater) {
                     return $query;
                 }
 
-                // No pivot memberships: mirror old null-company behavior — show only users
-                // who are also not in any company via the pivot.
+                // No pivot memberships and floater off: show only other null-company users.
                 return $query->whereNotIn('users.id', function ($sub) {
                     $sub->select('user_id')->from('company_user');
                 });
             }
 
-            // Floater: also include users with no company associations (they float). They all float down here, Georgie.).
+            // Floater: also show null-company users (no pivot rows) to company-scoped actors.
             if ($floater) {
                 return $query->where(function ($q) use ($companyIds) {
                     $q->whereIn('users.id', function ($sub) use ($companyIds) {
@@ -435,7 +438,7 @@ final class Company extends SnipeModel
             $table = ($table_name) ? $table_name.'.' : $query->getModel()->getTable().'.';
 
             if (empty($companyIds)) {
-                // Floater: actor has no company and is unrestricted — see everything.
+                // Floater: null-company actor sees all items (they are unrestricted for assets/etc).
                 if ($floater) {
                     return $query;
                 }
