@@ -73,7 +73,12 @@ class MaintenancesTransformer
             'asset_maintenance_type' => e($assetmaintenance->asset_maintenance_type),
             'start_date' => Helper::getFormattedDateObject($assetmaintenance->start_date, 'date'),
             'asset_maintenance_time' => (int) $assetmaintenance->asset_maintenance_time,
-            'completion_date' => Helper::getFormattedDateObject($assetmaintenance->completion_date, 'date'),
+            'expected_completion_date' => Helper::getFormattedDateObject($assetmaintenance->expected_completion_date, 'date'),
+            // Legacy alias for `expected_completion_date` (the column was
+            // renamed to match the "Expected Completion" UI label). Kept
+            // in the payload so API v1 consumers reading .completion_date
+            // don't break. Both keys point at the same underlying value.
+            'completion_date' => Helper::getFormattedDateObject($assetmaintenance->expected_completion_date, 'date'),
             'user_id' => ($assetmaintenance->adminuser) ? [
                 'id' => $assetmaintenance->adminuser->id,
                 'name' => e($assetmaintenance->adminuser->display_name),
@@ -82,8 +87,23 @@ class MaintenancesTransformer
                 'id' => (int) $assetmaintenance->adminuser->id,
                 'name' => e($assetmaintenance->adminuser->display_name),
             ] : null,
+            // DEPRECATED: bare-string maintenance_type. Kept for API
+            // back-compat with callers reading this as a plain type
+            // name. New consumers should read maintenance_type_details
+            // below for id/name/tag_color, which the bootstrap-table
+            // linker formatter uses to render the type as a link to
+            // its Maintenance Types detail page.
             'maintenance_type' => $assetmaintenance->maintenanceType
                 ? e($assetmaintenance->maintenanceType->name)
+                : null,
+            'maintenance_type_details' => $assetmaintenance->maintenanceType
+                ? [
+                    'id' => (int) $assetmaintenance->maintenanceType->id,
+                    'name' => e($assetmaintenance->maintenanceType->name),
+                    'tag_color' => $assetmaintenance->maintenanceType->tag_color
+                        ? e($assetmaintenance->maintenanceType->tag_color)
+                        : null,
+                ]
                 : null,
             'responsible_party' => ($assetmaintenance->responsibleParty) ? [
                 'id' => (int) $assetmaintenance->responsibleParty->id,
@@ -145,13 +165,31 @@ class MaintenancesTransformer
             'supplier' => ($assetmaintenance->supplier) ? e($assetmaintenance->supplier?->name) : null,
             'url' => ($assetmaintenance->url) ? e($assetmaintenance->url) : null,
             'cost' => Helper::formatCurrencyOutput($assetmaintenance->cost),
+            // DEPRECATED: bare-string maintenance_type. Kept for API
+            // back-compat with callers reading this as a plain type
+            // name. New consumers should read maintenance_type_details
+            // below for id/name/tag_color, which the bootstrap-table
+            // linker formatter uses to render the type as a link to
+            // its Maintenance Types detail page.
             'maintenance_type' => $assetmaintenance->maintenanceType
                 ? e($assetmaintenance->maintenanceType->name)
+                : null,
+            'maintenance_type_details' => $assetmaintenance->maintenanceType
+                ? [
+                    'id' => (int) $assetmaintenance->maintenanceType->id,
+                    'name' => e($assetmaintenance->maintenanceType->name),
+                    'tag_color' => $assetmaintenance->maintenanceType->tag_color
+                        ? e($assetmaintenance->maintenanceType->tag_color)
+                        : null,
+                ]
                 : null,
             'asset_maintenance_type' => e($assetmaintenance->asset_maintenance_type),
             'start_date' => Helper::getFormattedDateObject($assetmaintenance->start_date, 'date'),
             'asset_maintenance_time' => $assetmaintenance->asset_maintenance_time,
-            'completion_date' => Helper::getFormattedDateObject($assetmaintenance->completion_date, 'date'),
+            'expected_completion_date' => Helper::getFormattedDateObject($assetmaintenance->expected_completion_date, 'date'),
+            // Legacy alias for `expected_completion_date`; see the
+            // matching comment in transformMaintenance() above.
+            'completion_date' => Helper::getFormattedDateObject($assetmaintenance->expected_completion_date, 'date'),
             'responsible_party' => ($assetmaintenance->responsibleParty) ? [
                 'id' => (int) $assetmaintenance->responsibleParty->id,
                 'name' => e($assetmaintenance->responsibleParty->display_name),
