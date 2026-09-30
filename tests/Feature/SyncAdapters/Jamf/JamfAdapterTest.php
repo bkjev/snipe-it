@@ -31,6 +31,7 @@ class JamfAdapterTest extends TestCase
         $adapter = $this->configuredJamfAdapter();
 
         Http::fake([
+            '*/api/oauth/token' => $this->jamfTokenResponse(),
             '*/api/v1/computers-inventory*' => Http::response([
                 'totalCount' => 2,
                 'results' => [
@@ -48,6 +49,24 @@ class JamfAdapterTest extends TestCase
         $this->assertDatabaseHas('asset_external_sources', ['source' => 'jamf', 'external_id' => '42']);
         $this->assertDatabaseHas('asset_external_sources', ['source' => 'jamf', 'external_id' => '99']);
         $this->assertDatabaseHas('assets', ['name' => 'lab-mac-01']);
+
+        // Laravel's default array-shaped query encoding produces the bracketed
+        // form and Jamf silently drops it, leaving every asset with
+        // no hardware section (and no model id). The client hand-builds
+        // the query string to force the API shape Jamf actually reads.
+        Http::assertSent(function ($request) {
+            if (!str_contains($request->url(), '/api/v1/computers-inventory')) {
+                return false;
+            }
+            $url = $request->url();
+
+            return str_contains($url, 'section=GENERAL')
+                && str_contains($url, 'section=HARDWARE')
+                && str_contains($url, 'section=OPERATING_SYSTEM')
+                && str_contains($url, 'section=USER_AND_LOCATION')
+                && !str_contains($url, 'section%5B')
+                && !str_contains($url, 'section[');
+        });
     }
 
     public function test_normalized_record_carries_expected_fields()
@@ -55,6 +74,7 @@ class JamfAdapterTest extends TestCase
         $adapter = $this->configuredJamfAdapter();
 
         Http::fake([
+            '*/api/oauth/token' => $this->jamfTokenResponse(),
             '*/api/v1/computers-inventory*' => Http::response([
                 'totalCount' => 1,
                 'results' => [
@@ -92,9 +112,26 @@ class JamfAdapterTest extends TestCase
     {
         $instance = SyncAdapterInstance::where('slug', 'jamf')->firstOrFail();
         SyncAdapterConfig::put($instance->id, 'url', 'https://example.jamfcloud.com');
-        SyncAdapterConfig::put($instance->id, 'token', Crypt::encrypt('fake-jamf-token'));
+        SyncAdapterConfig::put($instance->id, 'client_id', Crypt::encrypt('fake-jamf-client-id'));
+        SyncAdapterConfig::put($instance->id, 'client_secret', Crypt::encrypt('fake-jamf-client-secret'));
 
         return new JamfAdapter($instance->fresh());
+    }
+
+    /**
+     * Jamf Pro's /api/oauth/token response shape. expires_in is
+     * whatever the API Client is configured for. The client's bearer
+     * cache honors it with a 30-second buffer before re-exchanging.
+     * No return type hint because Http::response() inside a fake
+     * handler resolves to a promise, not a bare Response.
+     */
+    private function jamfTokenResponse()
+    {
+        return Http::response([
+            'access_token' => 'fake-jamf-access-token',
+            'token_type' => 'Bearer',
+            'expires_in' => 3600,
+        ]);
     }
 
     /**
