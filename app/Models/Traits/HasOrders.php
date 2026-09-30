@@ -140,12 +140,67 @@ trait HasOrders
     }
 
     /**
+     * Batch version of lastOrderDefaults()['unit_cost'] for a whole
+     * collection of items of the same class. Falls back to each
+     * item's default_purchase_cost when it has no order history.
+     *
+     * @param  iterable<int, self>  $items
+     * @return array<int, string|null> Keyed by item id.
+     */
+    public static function lastUnitCostsFor(iterable $items): array
+    {
+        $ids = [];
+        $defaults = [];
+        foreach ($items as $item) {
+            $id = (int) $item->getKey();
+            if ($id <= 0) {
+                continue;
+            }
+            $ids[$id] = true;
+            if (! array_key_exists($id, $defaults) && $item->default_purchase_cost !== null) {
+                $defaults[$id] = (string) $item->default_purchase_cost;
+            }
+        }
+        $ids = array_keys($ids);
+        if ($ids === []) {
+            return [];
+        }
+
+        $latestOrderItemIds = OrderItem::query()
+            ->where('item_type', static::class)
+            ->whereIn('item_id', $ids)
+            ->groupBy('item_id')
+            ->select('item_id')
+            ->selectRaw('MAX(id) as max_id')
+            ->pluck('max_id')
+            ->all();
+
+        $prices = [];
+        if ($latestOrderItemIds !== []) {
+            $prices = OrderItem::query()
+                ->whereIn('id', $latestOrderItemIds)
+                ->pluck('price', 'item_id')
+                ->all();
+        }
+
+        $out = [];
+        foreach ($ids as $id) {
+            if (array_key_exists($id, $prices) && $prices[$id] !== null) {
+                $out[$id] = (string) $prices[$id];
+
+                continue;
+            }
+            $out[$id] = $defaults[$id] ?? null;
+        }
+
+        return $out;
+    }
+
+    /**
      * Prefill values for the create / clone form's initial-acquisition
      * fields. Distinct from lastOrderDefaults() because this shape
      * includes `order_number` (per-shipment, not a "default" concept)
-     * and matches the request keys the create form posts back, so a
-     * controller can loop the return array to assign values directly
-     * onto a cloned model's attributes.
+     * and matches the request keys the create form posts back.
      *
      * Used by getClone() on Accessories / Consumables / Components to
      * carry the source item's most recent acquisition context onto the
@@ -154,26 +209,35 @@ trait HasOrders
      * / price for a fast restock. Items with no order history return
      * an all-null array.
      *
+     * Returns native types (Carbon for purchase_date, float for
+     * purchase_cost) so getClone() can assign directly onto typed
+     * model properties without a coercion step and without tripping
+     * larastan's assign.propertyType on the cast-inferred property
+     * signatures. The @var below is needed because MorphMany::first()
+     * infers to Model|null; the annotation resolves $line to OrderItem
+     * so `->order` and `->price` accesses type through cleanly rather
+     * than falling into the Model::$order baseline ignore bucket.
+     *
      * @return array{
      *     supplier_id: ?int,
-     *     purchase_date: ?string,
-     *     purchase_cost: ?string,
+     *     purchase_date: ?\Carbon\Carbon,
+     *     purchase_cost: ?float,
      *     order_number: ?string,
      * }
      */
     public function lastOrderPrefill(): array
     {
+        /** @var \App\Models\OrderItem|null $line */
         $line = $this->orderItems()
             ->with('order:id,order_number,supplier_id,purchase_date')
             ->latest('id')
             ->first();
-        $order = $line?->order;
 
         return [
-            'supplier_id' => $order?->supplier_id,
-            'purchase_date' => $order?->purchase_date?->toDateString(),
-            'purchase_cost' => $line?->price !== null ? (string) $line->price : null,
-            'order_number' => $order?->order_number,
+            'supplier_id' => $line?->order?->supplier_id,
+            'purchase_date' => $line?->order?->purchase_date,
+            'purchase_cost' => $line?->price !== null ? (float) $line->price : null,
+            'order_number' => $line?->order?->order_number,
         ];
     }
 

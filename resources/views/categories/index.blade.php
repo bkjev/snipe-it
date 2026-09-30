@@ -10,7 +10,9 @@
 {{-- Page content --}}
 @section('content')
     <x-container>
-        <x-box>
+        <x-box name="category" sr_only_title>
+
+            <x-slot:table_header>{{ trans('general.categories') }}</x-slot:table_header>
 
             <x-slot:bulkactions>
                 <x-table.bulk-categories />
@@ -27,7 +29,9 @@
                     export_filename="export-categories-{{ date('Y-m-d') }}"
             />
         </x-box>
+        <x-shiftclick/>
     </x-container>
+
 @stop
 
 @section('moar_scripts')

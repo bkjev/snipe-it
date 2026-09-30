@@ -2,12 +2,14 @@
 
 namespace App\Importer;
 
+use App\Exceptions\ImportRowRejected;
 use App\Models\AssetModel;
 use App\Models\Category;
 use App\Models\Company;
 use App\Models\CompanyableScope;
 use App\Models\Location;
 use App\Models\Manufacturer;
+use App\Models\Setting;
 use App\Models\Statuslabel;
 use App\Models\Supplier;
 use App\Models\User;
@@ -16,9 +18,28 @@ class ItemImporter extends Importer
 {
     protected $item;
 
+    protected Setting $settings;
+
+    // Every concrete subclass currently disables the reject-empty pass on
+    // update so that a present-but-empty CSV cell clears the corresponding
+    // DB column. Absent columns still preserve the DB value because the
+    // subclasses' handle() methods only populate $this->item for cells that
+    // are actually in the row. Flip to true on a subclass, or via
+    // setRejectEmptyOnUpdate() at runtime, to fall back to "keep DB value
+    // on empty CSV cell" behavior.
+    protected bool $rejectEmptyOnUpdate = false;
+
+    public function setRejectEmptyOnUpdate(bool $reject): self
+    {
+        $this->rejectEmptyOnUpdate = $reject;
+
+        return $this;
+    }
+
     public function __construct($filename)
     {
         parent::__construct($filename);
+        $this->settings = Setting::getSettings();
     }
 
     protected function handle($row)
@@ -120,11 +141,88 @@ class ItemImporter extends Importer
             return;
         }
 
-        if (strtolower($this->item['checkout_class']) === 'location' && $this->findCsvMatch($row, 'checkout_location') != null) {
-            return Location::findOrFail($this->createOrFetchLocation($this->findCsvMatch($row, 'checkout_location')));
+        $checkoutClass = strtolower((string) $this->item['checkout_class']);
+        $checkoutLocation = $this->findCsvMatch($row, 'checkout_location');
+        $checkoutAsset = $this->findCsvMatch($row, 'checkout_asset');
+        // checkout_user is not read locally: createOrFetchUser looks it up
+        // via findCsvMatch as a username fallback, so the user path picks it
+        // up whether we reach it via the explicit checkout_class=user branch
+        // or the default fall-through. Populating $this->item here is
+        // deliberate so subclasses that inspect the item array see it.
+
+        // Checkout intent is inferred from which target-shape column has a
+        // value: checkout_asset (asset tag of parent asset), checkout_location
+        // (location name), checkout_user (username), or the multi-column
+        // user-identity path (email / username / full_name / etc.).
+        // checkout_class is only required as an explicit override when a row
+        // has more than one populated and needs disambiguation, or for
+        // backward-compat with pre-inference CSVs. Prior behavior required
+        // both a checkout_location AND a checkout_class column set to
+        // "Location" on every row; when checkout_class was missing the code
+        // silently fell through to user lookup, produced a null target, and
+        // no checkout event fired with no error surfaced. checkout_user is
+        // keyed on username specifically because email is not enforced as
+        // unique on the users table (the unique index was dropped in the
+        // 2015_07_25_055415 migration) and would silently match the wrong
+        // user in installs with duplicates. createOrFetchUser reads
+        // checkout_user as a username fallback, so the user path (lookup
+        // OR create when the row has enough identity data) works whether
+        // the operator maps username, checkout_user, or both.
+
+        // Explicit checkout_class wins when set and has a matching target
+        // column populated. Preserves the disambiguation escape hatch
+        // (e.g. checkout_class=user beats a populated checkout_location).
+        if ($checkoutClass === 'asset' && $checkoutAsset) {
+            return $this->findAssetCheckoutTarget($checkoutAsset);
+        }
+        if ($checkoutClass === 'location' && $checkoutLocation) {
+            return Location::findOrFail($this->createOrFetchLocation($checkoutLocation));
+        }
+        if (in_array($checkoutClass, ['user', 'person'], true)) {
+            return $this->createOrFetchUser($row);
         }
 
+        // Inference paths. Any target-shape column populated is enough to
+        // route to that target type when no checkout_class contradicted it.
+        if ($checkoutAsset) {
+            return $this->findAssetCheckoutTarget($checkoutAsset);
+        }
+
+        if ($checkoutLocation) {
+            return Location::findOrFail($this->createOrFetchLocation($checkoutLocation));
+        }
+
+        // User path handles both checkout_user (single-column shortcut) and
+        // the multi-column user-identity shape. createOrFetchUser looks up
+        // by username first and creates a new user if the row has enough
+        // additional identity data (full_name / first_name / email).
         return $this->createOrFetchUser($row);
+    }
+
+    /**
+     * Look up an existing asset by tag to use as a checkout target. We do
+     * NOT auto-create assets here the way createOrFetchLocation does. A
+     * checkout target is an existing physical thing; creating a phantom
+     * asset just to satisfy a checkout row would mask CSV typos and
+     * pollute the inventory. Returns null when the tag doesn't resolve,
+     * which the caller in AssetImporter surfaces as a per-row warning
+     * (see the checkoutColumnPopulated block there).
+     */
+    protected function findAssetCheckoutTarget($assetTag)
+    {
+        if (empty($assetTag)) {
+            return null;
+        }
+
+        $asset = \App\Models\Asset::where('asset_tag', (string) $assetTag)->first();
+
+        if (! $asset) {
+            $this->log('WARNING: checkout_asset "'.$assetTag.'" does not match any existing asset tag. The checkout will be skipped.');
+
+            return null;
+        }
+
+        return $asset;
     }
 
     /**
@@ -148,7 +246,7 @@ class ItemImporter extends Importer
         $item = $item->only($model->getFillable());
 
         // Then iterate through the item and, if we are updating, remove any blank values.
-        if ($updating) {
+        if ($updating && $this->rejectEmptyOnUpdate) {
             $item = $item->reject(function ($value) {
                 return empty($value);
             });
@@ -456,28 +554,46 @@ class ItemImporter extends Importer
     /**
      * Fetch an existing company, or create new if it doesn't exist
      *
+     * @param  $asset_company_name  string
+     * @return int|null id of company created/found, or null when FMCS rejects the importing user's access to it
+     *
      * @author Daniel Melzter
      *
      * @since 3.0
-     *
-     * @param  $asset_company_name  string
-     * @return int id of company created/found
      */
     public function createOrFetchCompany($asset_company_name)
     {
         // Bypass CompanyableScope so the lookup can see companies the
-        // importer's user isn't FMCS-allowed to see — otherwise the
-        // SELECT misses an existing row, the code falls through to the
-        // INSERT path, and the unique index on companies.name rejects
-        // it (which is what the customer's stack trace shows).
+        // importer's user isn't FMCS-allowed to see. Without this, a
+        // scoped user hits the create path against a name that already
+        // exists in another tenant, and Watson ValidatingTrait rejects
+        // the save because company.name has to be globally unique.
         $company = Company::withoutGlobalScope(CompanyableScope::class)
             ->where('name', $asset_company_name)
             ->first();
+
+        $importing_user = auth()->user() ?? ($this->created_by ? User::find($this->created_by) : null);
+        $fmcs = (bool) $this->settings->full_multiple_companies_support;
+
         if ($company) {
+            if ($fmcs && $importing_user !== null && ! $importing_user->isSuperUser()) {
+                $userCompanyIds = $importing_user->companies()->pluck('companies.id')->all();
+                // Empty pivot under floater mode is a trusted global-access actor.
+                $isFloater = empty($userCompanyIds) && (bool) $this->settings->null_company_is_floater;
+
+                if (! $isFloater && ! in_array($company->id, $userCompanyIds, true)) {
+                    throw new ImportRowRejected(
+                        'company',
+                        'User is not a member of company "'.$asset_company_name.'". Row rejected.',
+                    );
+                }
+            }
+
             $this->log('A matching Company '.$asset_company_name.' already exists');
 
             return $company->id;
         }
+
         $company = new Company;
         $company->created_by = $this->created_by;
         $company->name = $asset_company_name;
@@ -626,19 +742,42 @@ class ItemImporter extends Importer
         }
 
         // Bypass CompanyableScope so the lookup can see locations the
-        // importer's user isn't FMCS-allowed to see — same shape as the
-        // Company fix in createOrFetchCompany(). Without this, a hidden
-        // existing location forces the INSERT path and trips the unique
-        // index on locations.name.
+        // importer's user isn't FMCS-allowed to see. Falling through
+        // to the create path when a matching row already exists would
+        // just produce a second row with the same name.
         $location = Location::withoutGlobalScope(CompanyableScope::class)
             ->where('name', $asset_location)
             ->first();
 
+        $importing_user = auth()->user() ?? ($this->created_by ? User::find($this->created_by) : null);
+        $fmcs = (bool) $this->settings->full_multiple_companies_support;
+        $locationsFmcs = (bool) $this->settings->scope_locations_fmcs;
+
         if ($location) {
+            // Only enforced when scope_locations_fmcs is on. Otherwise
+            // locations are global and every user can see all of them.
+            if ($fmcs
+                && $locationsFmcs
+                && $importing_user !== null
+                && ! $importing_user->isSuperUser()
+                && $location->company_id
+            ) {
+                $userCompanyIds = $importing_user->companies()->pluck('companies.id')->all();
+                $isFloater = empty($userCompanyIds) && (bool) $this->settings->null_company_is_floater;
+
+                if (! $isFloater && ! in_array($location->company_id, $userCompanyIds, true)) {
+                    throw new ImportRowRejected(
+                        'location',
+                        'User does not have access to location "'.$asset_location.'". Row rejected.',
+                    );
+                }
+            }
+
             $this->log('Location '.$asset_location.' already exists');
 
             return $location->id;
         }
+
         // No matching locations in the collection, create a new one.
         $location = new Location;
         $location->name = $asset_location;

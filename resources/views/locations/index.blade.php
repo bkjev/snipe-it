@@ -9,7 +9,7 @@
 
 @section('content')
     <x-container>
-        <x-box name="locations">
+        <x-box name="locations" sr_only_title>
             {{-- Convert hand-rolled <table> to the shared x-table.locations
                  component so sticky-column CSS (snipe-table--sticky-right-1)
                  is wired the same way as every other list page. Preserves
@@ -17,6 +17,7 @@
                  has always supported. --}}
             <x-table.locations :route="route('api.locations.index', ['company_id' => e(request('company_id')), 'status' => e(request('status'))])" />
         </x-box>
+        <x-shiftclick/>
     </x-container>
 @stop
 

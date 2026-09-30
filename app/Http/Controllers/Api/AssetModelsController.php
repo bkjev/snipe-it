@@ -216,12 +216,39 @@ class AssetModelsController extends Controller
      *
      * @param  int  $id
      */
-    public function assets($id): array
+    public function assets(Request $request, $id): JsonResponse|array
     {
         $this->authorize('view', AssetModel::class);
-        $assets = Asset::where('model_id', '=', $id)->get();
+        $model = AssetModel::findOrFail($id);
 
-        return (new AssetsTransformer)->transformAssets($assets, $assets->count());
+        // Eager-load the same relations AssetsTransformer walks per row.
+        // Without this, a page of 500 assets triggers 500-plus follow-up
+        // queries for status, company, assignedTo, adminuser, and the
+        // model / manufacturer / category chain the transformer expands
+        // on each row.
+        $assets = Asset::where('model_id', $model->id)
+            ->with(
+                'model',
+                'model.category',
+                'model.manufacturer',
+                'model.depreciation',
+                'model.fieldset',
+                'location',
+                'defaultLoc',
+                'status',
+                'company',
+                'assignedTo',
+                'adminuser',
+                'supplier',
+            );
+
+        $total = $assets->count();
+        $offset = ($request->input('offset') > $total) ? $total : app('api_offset_value');
+        $limit = app('api_limit_value');
+
+        $assets = $assets->skip($offset)->take($limit)->get();
+
+        return (new AssetsTransformer)->transformAssets($assets, $total);
     }
 
     /**
@@ -293,6 +320,30 @@ class AssetModelsController extends Controller
     }
 
     /**
+     * Restore a soft-deleted asset model.
+     */
+    public function restore($id): JsonResponse
+    {
+        $this->authorize('delete', AssetModel::class);
+
+        if ($assetmodel = AssetModel::withTrashed()->find($id)) {
+
+            if ($assetmodel->deleted_at == '') {
+                return response()->json(Helper::formatStandardApiResponse('error', null, trans('general.not_deleted', ['item_type' => trans('general.asset_model')])), 200);
+            }
+
+            // The `restore` action_log entry is written by AssetModelObserver::restoring
+            if ($assetmodel->restore()) {
+                return response()->json(Helper::formatStandardApiResponse('success', null, trans('admin/models/message.restore.success')), 200);
+            }
+
+            return response()->json(Helper::formatStandardApiResponse('error', null, trans('general.could_not_restore', ['item_type' => trans('general.asset_model'), 'error' => $assetmodel->getErrors()->first()])), 200);
+        }
+
+        return response()->json(Helper::formatStandardApiResponse('error', null, trans('admin/models/message.does_not_exist')), 200);
+    }
+
+    /**
      * Gets a paginated collection for the select2 menus
      *
      * @author [A. Gianotto] [<snipe@snipe.net>]
@@ -354,5 +405,37 @@ class AssetModelsController extends Controller
         $history = (clone $historyQuery)->skip($offset)->take($limit)->get();
 
         return response()->json((new ActionlogsTransformer)->transformActionlogs($history, $total), 200, ['Content-Type' => 'application/json;charset=utf8'], JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * List asset models that are requestable AND reachable by the
+     * current caller (per FMCS + location scoping). Hydrates the
+     * models tab on /account/requestable so the shell page can drop
+     * its server-rendered @foreach and match the pattern the other
+     * requestable tabs (accessory / consumable / component / license)
+     * already use. Row shape carries assigned_to_self plus
+     * available_actions.request/cancel so the JS actions formatter
+     * can pick the right button per row without a second query.
+     */
+    public function requestable(Request $request): array
+    {
+        $query = AssetModel::with('category', 'manufacturer', 'requests')
+            ->withCount('availableAssets as remaining')
+            ->Requestable();
+
+        if ($request->filled('search')) {
+            $query->TextSearch($request->input('search'));
+        }
+
+        $total = $query->count();
+        $offset = ($request->input('offset') > $total) ? $total : app('api_offset_value');
+        $limit = app('api_limit_value');
+
+        $order = $request->input('order') === 'asc' ? 'asc' : 'desc';
+        $sort = in_array($request->input('sort'), ['name', 'created_at', 'remaining'], true) ? $request->input('sort') : 'name';
+
+        $rows = $query->orderBy($sort, $order)->skip($offset)->take($limit)->get();
+
+        return (new AssetModelsTransformer)->transformAssetModels($rows, $total);
     }
 }

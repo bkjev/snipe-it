@@ -9,15 +9,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\DeleteUserRequest;
 use App\Http\Requests\FilterRequest;
 use App\Http\Requests\SaveUserRequest;
-use App\Http\Transformers\AccessoriesTransformer;
 use App\Http\Transformers\ActionlogsTransformer;
 use App\Http\Transformers\AssetsTransformer;
-use App\Http\Transformers\ConsumablesTransformer;
-use App\Http\Transformers\LicensesTransformer;
 use App\Http\Transformers\SelectlistTransformer;
 use App\Http\Transformers\UsersTransformer;
 use App\Models\Accessory;
-use App\Models\Actionlog;
 use App\Models\Asset;
 use App\Models\Company;
 use App\Models\Consumable;
@@ -31,6 +27,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -487,7 +484,7 @@ class UsersController extends Controller
         // saved the user first, then filtered company IDs after the fact
         // (see syncCompaniesWithLogging below). A non-superuser could
         // submit a company_id belonging to another company they were not
-        // a member of; the user row was persisted before the filter ran,
+        // a member of, and the user row was persisted before the filter ran,
         // producing an unauthorized cross-tenant record even when the
         // pivot ended up empty (leaving the account as a floater under
         // null_company_is_floater installs). Reject the whole request if
@@ -564,7 +561,7 @@ class UsersController extends Controller
             }
 
             if (($request->has('groups')) && (auth()->user()->isSuperUser())) {
-                $user->groups()->sync($request->input('groups'));
+                $user->syncGroupsWithLogging((array) $request->input('groups'));
             }
 
             $user->syncCompaniesWithLogging($permittedCompanyIds);
@@ -666,7 +663,7 @@ class UsersController extends Controller
         }
 
         // Pull out sensitive fields that require extra permission. The
-        // GATED_AUTH_FIELDS constant covers user-editable secrets; the
+        // GATED_AUTH_FIELDS constant covers user-editable secrets. The
         // additional keys below are internal state (2FA secrets, remember
         // tokens, activation codes) that must never be settable from a
         // request payload regardless of caller privilege.
@@ -737,14 +734,17 @@ class UsersController extends Controller
                 }
 
                 // Sync the groups since the user is a superuser and the groups pass validation
-                $user->groups()->sync($request->input('groups'));
+                $user->syncGroupsWithLogging((array) $request->input('groups'));
             }
 
-            // company_ids (new format) = full replacement sync.
+            // company_ids (new format) = full replacement sync, with
+            // the target's invisible-to-editor memberships preserved
+            // so a scoped editor's save can't detach the target from
+            // tenants outside the editor's own membership.
             // Legacy company_id = add without removing other associations.
             if ($request->has('company_ids')) {
-                $companyIds = array_filter(array_map('intval', (array) $request->input('company_ids')));
-                $user->syncCompaniesWithLogging(Company::getIdsForCurrentUser($companyIds));
+                $companyIds = array_values(array_filter(array_map('intval', (array) $request->input('company_ids'))));
+                $user->syncCompaniesPreservingInvisibleTo(auth()->user(), $companyIds);
             } elseif ($request->filled('company_id')) {
                 $filtered = Company::getIdsForCurrentUser([(int) $request->input('company_id')]);
                 if (! empty($filtered)) {
@@ -879,13 +879,12 @@ class UsersController extends Controller
     }
 
     /**
-     * Return JSON containing a list of consumables assigned to a user.
+     * Return JSON containing a paginated list of consumable checkouts
+     * assigned to a user. One row per consumables_users pivot entry.
      *
      * @author [A. Gianotto] [<snipe@snipe.net>]
      *
      * @since [v3.0]
-     *
-     * @param  $userId
      */
     public function consumables(Request $request, $id): array
     {
@@ -893,19 +892,44 @@ class UsersController extends Controller
         $this->authorize('view', Consumable::class);
         $user = User::findOrFail($id);
         $this->authorize('view', $user);
-        $consumables = $user->consumables;
 
-        return (new ConsumablesTransformer)->transformConsumables($consumables, $consumables->count(), $request);
+        $query = $user->consumables();
+
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('consumables.name', 'like', "%{$search}%")
+                    ->orWhere('consumables_users.note', 'like', "%{$search}%");
+            });
+        }
+
+        $total = $query->count();
+        $offset = ($request->input('offset') > $total) ? $total : app('api_offset_value');
+        $limit = app('api_limit_value');
+
+        $sortColumn = $request->input('sort') === 'name'
+            ? 'consumables.name'
+            : 'consumables_users.created_at';
+        $order = $request->input('order') === 'asc' ? 'asc' : 'desc';
+
+        $consumables = $query
+            ->orderBy($sortColumn, $order)
+            ->skip($offset)
+            ->take($limit)
+            ->get();
+
+        $unitCostsById = Consumable::lastUnitCostsFor($consumables);
+
+        return (new UsersTransformer)
+            ->transformUserConsumables($consumables, $unitCostsById, $total);
     }
 
     /**
-     * Return JSON containing a list of accessories assigned to a user.
+     * Return JSON containing a paginated list of accessory checkouts
+     * assigned to a user. One row per accessories_checkout pivot entry.
      *
      * @author [A. Gianotto] [<snipe@snipe.net>]
      *
      * @since [v4.6.14]
-     *
-     * @param  $userId
      */
     public function accessories(Request $request, $id): array
     {
@@ -914,25 +938,43 @@ class UsersController extends Controller
         $this->authorize('view', $user);
         $this->authorize('view', Accessory::class);
 
-        $accessories = $user->accessories();
+        $query = $user->accessories();
 
-        $total = $accessories->count();
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('accessories.name', 'like', "%{$search}%")
+                    ->orWhere('accessories_checkout.note', 'like', "%{$search}%");
+            });
+        }
+
+        $total = $query->count();
         $offset = ($request->input('offset') > $total) ? $total : app('api_offset_value');
         $limit = app('api_limit_value');
 
-        $accessories = $accessories->skip($offset)->take($limit)->get();
+        $sortColumn = $request->input('sort') === 'name'
+            ? 'accessories.name'
+            : 'accessories_checkout.created_at';
+        $order = $request->input('order') === 'asc' ? 'asc' : 'desc';
 
-        return (new AccessoriesTransformer)->transformAccessories($accessories, $total);
+        $accessories = $query
+            ->reorder($sortColumn, $order)
+            ->skip($offset)
+            ->take($limit)
+            ->get();
+
+        $unitCostsById = Accessory::lastUnitCostsFor($accessories);
+
+        return (new UsersTransformer)
+            ->transformUserAccessories($accessories, $unitCostsById, $total);
     }
 
     /**
-     * Return JSON containing a list of licenses assigned to a user.
+     * Return JSON containing a paginated list of license seat
+     * assignments for a user. One row per license_seats pivot entry.
      *
      * @author [N. Mathar] [<snipe@snipe.net>]
      *
      * @since [v5.0]
-     *
-     * @param  $userId
      */
     public function licenses(Request $request, $id): JsonResponse|array
     {
@@ -940,15 +982,38 @@ class UsersController extends Controller
         $this->authorize('view', License::class);
 
         if ($user = User::where('id', $id)->withTrashed()->first()) {
-            $licenses = $user->licenses();
+            $this->authorize('view', $user);
 
-            $total = $licenses->count();
+            $query = $user->licenses();
+
+            if ($search = $request->input('search')) {
+                $canViewKeys = Gate::allows('viewKeys', License::class);
+                $query->where(function ($q) use ($search, $canViewKeys) {
+                    $q->where('licenses.name', 'like', "%{$search}%")
+                        ->orWhere('licenses.purchase_order', 'like', "%{$search}%")
+                        ->orWhere('licenses.order_number', 'like', "%{$search}%");
+                    if ($canViewKeys) {
+                        $q->orWhere('licenses.serial', 'like', "%{$search}%");
+                    }
+                });
+            }
+
+            $total = $query->count();
             $offset = ($request->input('offset') > $total) ? $total : app('api_offset_value');
             $limit = app('api_limit_value');
 
-            $licenses = $licenses->skip($offset)->take($limit)->get();
+            $sortColumn = $request->input('sort') === 'created_at'
+                ? 'license_seats.created_at'
+                : 'licenses.name';
+            $order = $request->input('order') === 'desc' ? 'desc' : 'asc';
 
-            return (new LicensesTransformer)->transformLicenses($licenses, $total);
+            $licenses = $query
+                ->orderBy($sortColumn, $order)
+                ->skip($offset)
+                ->take($limit)
+                ->get();
+
+            return (new UsersTransformer)->transformUserLicenses($licenses, $total);
         }
 
         return response()->json(Helper::formatStandardApiResponse('error', null, trans('admin/users/message.user_not_found', compact('id'))));
@@ -1015,14 +1080,8 @@ class UsersController extends Controller
             }
 
             if ($user->restore()) {
-
-                $logaction = new Actionlog;
-                $logaction->item_type = User::class;
-                $logaction->item_id = $user->id;
-                $logaction->created_at = date('Y-m-d H:i:s');
-                $logaction->created_by = auth()->id();
-                $logaction->logaction('restore');
-
+                // The `restore` action_log entry is written by
+                // UserObserver::restoring, no manual write here.
                 return response()->json(Helper::formatStandardApiResponse('success', null, trans('admin/users/message.success.restored')), 200);
             }
 

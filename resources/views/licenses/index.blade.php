@@ -10,7 +10,7 @@
 {{-- Page content --}}
 @section('content')
     <x-container>
-        <x-box>
+        <x-box name="licenses" sr_only_title>
 
             <x-slot:bulkactions>
                 <x-table.bulk-licenses />
@@ -25,6 +25,7 @@
                 :route="route('api.licenses.index', ['status' => e(request('status'))])"/>
 
         </x-box>
+        <x-shiftclick/>
     </x-container>
 @stop
 

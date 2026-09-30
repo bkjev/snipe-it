@@ -94,6 +94,10 @@ class ConsumablesController extends Controller
         $consumable->qty = $request->input('qty');
         $consumable->created_by = auth()->id();
         $consumable->notes = $request->input('notes');
+        // Unchecked checkboxes are omitted from the POST body; coerce
+        // absence to false so the flag really flips off. The setter
+        // normalizes the truthy branch.
+        $consumable->requestable = $request->input('requestable', false);
         // Seed the template supplier from the initial-acquisition
         // supplier on the create form; editable afterwards.
         $consumable->default_supplier_id = $request->input('default_supplier_id', $request->input('supplier_id'));
@@ -187,6 +191,9 @@ class ConsumablesController extends Controller
         // controller for the parent-as-template rationale.
         $consumable->default_supplier_id = $request->input('default_supplier_id');
         $consumable->notes = $request->input('notes');
+        // Unchecked checkbox is omitted from the POST body; coerce
+        // absence to false so unchecking really turns the flag off.
+        $consumable->requestable = $request->input('requestable', false);
 
         $consumable = $request->handleImages($consumable);
 
@@ -249,20 +256,19 @@ class ConsumablesController extends Controller
 
     public function clone(Consumable $consumable): View
     {
-        $this->authorize('create', $consumable);
+        $this->authorize('clone', $consumable);
         $consumable_to_close = $consumable;
         $consumable = clone $consumable_to_close;
         $consumable->id = null;
         $consumable->created_by = null;
 
-        // See AccessoriesController::getClone — same rationale for
-        // carrying the source item's most recent acquisition context
-        // onto the cloned create form.
-        foreach ($consumable_to_close->lastOrderPrefill() as $field => $value) {
-            if ($value !== null) {
-                $consumable->{$field} = $value;
-            }
-        }
+        // See AccessoriesController::getClone for the rationale, including
+        // the note on why these are explicit assignments not a foreach.
+        $prefill = $consumable_to_close->lastOrderPrefill();
+        $consumable->supplier_id = $prefill['supplier_id'];
+        $consumable->purchase_date = $prefill['purchase_date'];
+        $consumable->purchase_cost = $prefill['purchase_cost'];
+        $consumable->order_number = $prefill['order_number'];
 
         return view('consumables/edit')
             ->with('cloned_model', $consumable_to_close)

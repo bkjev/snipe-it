@@ -19,7 +19,6 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use League\Csv\Reader;
 use Onnov\DetectEncoding\EncodingDetector;
-use Symfony\Component\HttpFoundation\File\Exception\FileException;
 
 class ImportController extends Controller
 {
@@ -52,12 +51,24 @@ class ImportController extends Controller
         $this->authorize('import');
         if (! config('app.lock_passwords')) {
             $files = Request::file('files');
-            $path = config('app.private_uploads').'/imports';
+            // Path inside the private disk. Under PRIVATE_FILESYSTEM_DISK=local this resolves to
+            // storage/private_uploads/imports, and under s3_private it lands at <bucket>/private_uploads/imports
+            $diskPath = 'private_uploads/imports';
             $results = [];
             $import = new Import;
             $detector = new EncodingDetector;
 
+            // No file uploaded
+            if (empty($files)) {
+                return response()->json(Helper::formatStandardApiResponse('error', null, trans('admin/hardware/message.nofiles')), 422);
+            }
+
             foreach ($files as $file) {
+                // Reject phantoms and fail early if the file is invalid (e.g. exceeds the server upload limit).
+                // The CSV reader below will reject anything that isn't actually parseable with a more precise error.
+                if (! $file instanceof UploadedFile || ! $file->isValid()) {
+                    return response()->json(Helper::formatStandardApiResponse('error', null, trans('admin/hardware/message.nofiles')), 422);
+                }
                 $allowedMimes = [
                     'application/vnd.ms-excel',
                     'text/csv',
@@ -222,26 +233,17 @@ class ImportController extends Controller
                 $date = date('Y-m-d-his');
 
                 $fixed_filename = Str::of($file->getClientOriginalName())->basename('.csv').'.csv';
+                $file_name = $date . '-' . $fixed_filename;
 
-                try {
-                    $file->move($path, $date.'-'.$fixed_filename);
-                } catch (FileException $exception) {
+                // Storage::putFileAs routes through the Filesystem abstraction so it works
+                // uniformly against local and s3_private drivers.
+                if (!Storage::putFileAs($diskPath, $file, $file_name)) {
                     $results['error'] = trans('admin/hardware/message.upload.error');
-                    if (config('app.debug')) {
-                        $results['error'] .= ' '.$exception->getMessage();
-                    }
 
                     return response()->json(Helper::formatStandardApiResponse('error', null, $results['error']), 500);
                 }
-                $file_name = date('Y-m-d-his').'-'.$fixed_filename;
                 $import->file_path = $file_name;
-                $import->filesize = null;
-
-                if (! file_exists($path.'/'.$file_name)) {
-                    return response()->json(Helper::formatStandardApiResponse('error', null, trans('general.file_not_found')), 500);
-                }
-
-                $import->filesize = filesize($path.'/'.$file_name);
+                $import->filesize = $file->getSize();
                 $import->created_by = auth()->id();
                 $import->save();
                 $results[] = $import;
@@ -320,12 +322,32 @@ class ImportController extends Controller
             ]);
 
         if ($acquired === 0) {
+            // No extra SELECT here to fetch the current holder: this
+            // path fires exactly when the DB is under pressure (that's
+            // why the slice is blocked in the first place), and adding
+            // a query would compound the problem for the reporter.
+            // Log::debug() also evaluates its arguments even when debug
+            // logging is off, so any extra work here would fire in
+            // every prod install regardless of LOG_LEVEL. The current
+            // holder can be read straight from the imports row during
+            // triage.
+            Log::debug('Import mutex reject', [
+                'import_id' => $import_id,
+                'requesting_user_id' => auth()->id(),
+            ]);
+
             return response()->json(Helper::formatStandardApiResponse(
                 'error',
                 null,
                 trans('admin/hardware/message.import.already_processing')
             ), 409);
         }
+
+        Log::debug('Import mutex acquired', [
+            'import_id' => $import_id,
+            'user_id' => auth()->id(),
+            'acquired_at' => $now->toDateTimeString(),
+        ]);
 
         try {
             $errors = $request->import($import);
@@ -401,13 +423,19 @@ class ImportController extends Controller
             // 5-minute stale-timeout branch of the acquire WHERE remains as
             // a safety net for the case where this release never runs
             // (fatal error, request killed mid-flight).
-            DB::table('imports')
+            $released = DB::table('imports')
                 ->where('id', $import_id)
                 ->where('processing_by', auth()->id())
                 ->update([
                     'processing_by' => null,
                     'processing_started_at' => null,
                 ]);
+
+            Log::debug('Import mutex released', [
+                'import_id' => $import_id,
+                'user_id' => auth()->id(),
+                'rows_updated' => $released,
+            ]);
         }
     }
 
@@ -431,8 +459,12 @@ class ImportController extends Controller
             }
 
             try {
-                // Try to delete the file
-                Storage::delete('imports/'.$import->file_path);
+                // Try to delete the file. Path shape matches the write
+                // path in store(): 'private_uploads/imports/<name>' on
+                // the default (private) disk. The pre-fix path 'imports/'
+                // missed the 'private_uploads/' prefix and silently
+                // no-op'd on both drivers.
+                Storage::delete('private_uploads/imports/' . $import->file_path);
                 $import->delete();
 
                 return response()->json(Helper::formatStandardApiResponse('success', null, trans('admin/hardware/message.import.file_delete_success')));

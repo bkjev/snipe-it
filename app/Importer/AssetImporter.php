@@ -45,8 +45,8 @@ class AssetImporter extends ItemImporter
         // $this->item exclusively via setItemFromCsvIfPresent so absent
         // columns never enter the update payload (preserving DB values)
         // and present-but-empty columns land as null (clearing DB values).
-        // See sanitizeItemForStoring override below for the matching
-        // pass-through sanitize.
+        // The base sanitize's reject-empty pass is disabled by
+        // $rejectEmptyOnUpdate on ItemImporter.
         $this->item = [];
 
         // Shared lookup fields. Present-and-empty clears the FK; absent
@@ -182,19 +182,6 @@ class AssetImporter extends ItemImporter
     }
 
     /**
-     * Override the base sanitize to skip the reject-empty pass. AssetImporter
-     * populates $this->item exclusively from CSV columns that were present in
-     * the row, so an empty value here is an explicit intent to clear the DB
-     * field on update. See handle() above for the matching item-population.
-     *
-     * @SuppressWarnings(PHPMD.UnusedFormalParameter)
-     */
-    protected function sanitizeItemForStoring($model, $updating = false)
-    {
-        return collect($this->item)->only($model->getFillable())->toArray();
-    }
-
-    /**
      * Create the asset if it does not exist.
      *
      * @author Daniel Melzter
@@ -265,6 +252,24 @@ class AssetImporter extends ItemImporter
         // Sanitizing the item will remove it.
         if (array_key_exists('checkout_target', $this->item)) {
             $target = $this->item['checkout_target'];
+        }
+
+        // Log a warning when the operator populated a checkout column for
+        // this row but no target could be resolved. Prior behavior silently
+        // no-op'd the checkout side of the import in this case, so the
+        // row's other fields updated but no checkout event fired and
+        // nothing surfaced to the operator. Common triggers: the named
+        // location doesn't exist yet AND autocreate failed, or the older
+        // two-column shape where checkout_class was required and not
+        // mapped. See the determineCheckout comment.
+        $checkoutColumnPopulated = $this->findCsvMatch($row, 'checkout_location')
+            || $this->findCsvMatch($row, 'checkout_asset')
+            || $this->findCsvMatch($row, 'checkout_user')
+            || $this->findCsvMatch($row, 'checkout_class')
+            || $this->findCsvMatch($row, 'email')
+            || $this->findCsvMatch($row, 'username');
+        if ($checkoutColumnPopulated && empty($target)) {
+            $this->log('WARNING: A checkout column was populated for asset tag "'.$asset_tag.'" but no checkout target could be resolved from the row. The asset will be updated but no checkout event will fire.');
         }
 
         $item = $this->sanitizeItemForStoring($asset, $editingAsset);
@@ -364,6 +369,8 @@ class AssetImporter extends ItemImporter
                         }
 
                         $asset->checkOut($target, $this->created_by, $checkout_date, null, 'Checkout from CSV Importer', $asset->name);
+
+                        $this->maybeSendWelcomeEmail($target);
                     }
                 }
             }

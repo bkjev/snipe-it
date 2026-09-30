@@ -93,6 +93,10 @@ class ComponentsController extends Controller
         $component->qty = $request->input('qty');
         $component->created_by = auth()->id();
         $component->notes = $request->input('notes');
+        // Unchecked checkboxes are omitted from the POST body; coerce
+        // absence to false so the flag really flips off. The setter
+        // normalizes the truthy branch.
+        $component->requestable = $request->input('requestable', false);
         // Seed the template supplier from the initial-acquisition
         // supplier on the create form; editable afterwards.
         $component->default_supplier_id = $request->input('default_supplier_id', $request->input('supplier_id'));
@@ -177,6 +181,9 @@ class ComponentsController extends Controller
         // parent's "typical supplier" template.
         $component->default_supplier_id = $request->input('default_supplier_id');
         $component->notes = $request->input('notes');
+        // Unchecked checkbox is omitted from the POST body; coerce
+        // absence to false so unchecking really turns the flag off.
+        $component->requestable = $request->input('requestable', false);
 
         $component = $request->handleImages($component);
 
@@ -246,20 +253,19 @@ class ComponentsController extends Controller
 
     public function getClone(Component $component): View|RedirectResponse
     {
-        $this->authorize('create', Component::class);
+        $this->authorize('clone', $component);
 
         $cloned_component = clone $component;
         $cloned_component->id = null;
         $cloned_component->deleted_at = null;
 
-        // See AccessoriesController::getClone — same rationale for
-        // carrying the source item's most recent acquisition context
-        // onto the cloned create form.
-        foreach ($component->lastOrderPrefill() as $field => $value) {
-            if ($value !== null) {
-                $cloned_component->{$field} = $value;
-            }
-        }
+        // See AccessoriesController::getClone for the rationale, including
+        // the note on why these are explicit assignments not a foreach.
+        $prefill = $component->lastOrderPrefill();
+        $cloned_component->supplier_id = $prefill['supplier_id'];
+        $cloned_component->purchase_date = $prefill['purchase_date'];
+        $cloned_component->purchase_cost = $prefill['purchase_cost'];
+        $cloned_component->order_number = $prefill['order_number'];
 
         // Show the page
         return view('components/edit')
